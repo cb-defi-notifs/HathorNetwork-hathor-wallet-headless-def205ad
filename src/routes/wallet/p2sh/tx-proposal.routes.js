@@ -6,10 +6,11 @@
  */
 
 const { Router } = require('express');
-const { checkSchema } = require('express-validator');
+const { checkSchema, body } = require('express-validator');
 const {
   buildTxProposal,
   getMySignatures,
+  buildMintTokensTxProposal,
   signTx,
   signAndPush,
 } = require('../../../controllers/wallet/p2sh/tx-proposal.controller');
@@ -79,6 +80,18 @@ txProposalRouter.post(
     },
   }),
   buildTxProposal,
+);
+
+txProposalRouter.post(
+  '/mint-tokens',
+  body('token').isString().notEmpty(),
+  body('amount').isInt({ min: 1 }).toInt(),
+  body('address').isString().notEmpty().optional(),
+  body('change_address').isString().notEmpty().optional(),
+  body('create_mint').isBoolean().optional(),
+  body('mint_authority_address').isString().notEmpty().optional(),
+  body('allow_external_mint_authority_address').isBoolean().optional().toBoolean(),
+  buildMintTokensTxProposal,
 );
 
 /*
