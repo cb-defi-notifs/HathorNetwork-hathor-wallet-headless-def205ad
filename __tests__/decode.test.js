@@ -84,10 +84,23 @@ describe('decode api', () => {
     const expected = {
       success: true,
       tx: {
+        completeSignatures: false,
         tokens: [],
         inputs: [],
         outputs: [],
-      }
+      },
+      balance: expect.objectContaining({
+        '00': expect.objectContaining({
+          tokens: expect.objectContaining({
+            available: expect.any(Number),
+            locked: 0,
+          }),
+          authorities: expect.objectContaining({
+            melt: { available: 0, locked: 0 },
+            mint: { available: 0, locked: 0 },
+          }),
+        }),
+      }),
     };
 
     let response = await TestUtils.request
@@ -135,7 +148,11 @@ describe('decode api', () => {
     let address = new Address(TestUtils.addresses[0]);
     let script = new P2PKH(address);
     partialTx.outputs.push(
-      new ProposalOutput(10, script.createScript(), { token: fakeToken1, tokenData: 1 })
+      new ProposalOutput(
+        10,
+        script.createScript(),
+        { token: fakeToken1, tokenData: 1 }
+      )
     );
 
     address = new Address(TestUtils.addresses[1]);
@@ -162,8 +179,14 @@ describe('decode api', () => {
     expect(response.body).toEqual({
       success: true,
       tx: expect.objectContaining({
-        tokens: [fakeToken1, fakeToken2],
-        inputs: [{ txId: fakeInputHash, index: 1 }],
+        completeSignatures: false,
+        tokens: expect.arrayContaining([fakeToken1, fakeToken2]),
+        inputs: [
+          expect.objectContaining({
+            txId: fakeInputHash,
+            index: 1,
+          }),
+        ],
         outputs: [
           expect.objectContaining({
             value: 10,
@@ -177,6 +200,50 @@ describe('decode api', () => {
             decoded: expect.objectContaining({ address: TestUtils.addresses[1] })
           }),
         ],
+      }),
+      balance: expect.objectContaining({
+        '00': expect.objectContaining({
+          tokens: expect.objectContaining({
+            available: expect.any(Number),
+            locked: expect.any(Number),
+          }),
+          authorities: expect.objectContaining({
+            melt: { available: 0, locked: 0 },
+            mint: { available: 0, locked: 0 },
+          }),
+        }),
+        '00007f27e1970643427b0ea235d4c9b4cc700d0f6925e2cf1044b30a3259a995': expect.objectContaining({
+          tokens: expect.objectContaining({
+            available: expect.any(Number),
+            locked: expect.any(Number),
+          }),
+          authorities: expect.objectContaining({
+            melt: {
+              available: expect.any(Number),
+              locked: expect.any(Number),
+            },
+            mint: {
+              available: expect.any(Number),
+              locked: expect.any(Number),
+            },
+          }),
+        }),
+        '0000540e59bc09ce5aa25f1f7c21702e58e6e5dd8149d1eceb033bb606682590': expect.objectContaining({
+          tokens: expect.objectContaining({
+            available: expect.any(Number),
+            locked: expect.any(Number),
+          }),
+          authorities: expect.objectContaining({
+            melt: {
+              available: expect.any(Number),
+              locked: expect.any(Number),
+            },
+            mint: {
+              available: expect.any(Number),
+              locked: expect.any(Number),
+            },
+          }),
+        }),
       }),
     });
 

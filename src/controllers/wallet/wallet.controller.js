@@ -318,11 +318,19 @@ async function decodeTx(req, res) {
       }
       tx = partial.getTx();
     }
+
     const data = {
       tokens: tx.tokens,
-      inputs: tx.inputs.map(input => ({ txId: input.hash, index: input.index })),
+      inputs: tx.inputs.map(input => (
+        {
+          txId: input.hash,
+          index: input.index,
+          signed: !!input.data,
+        }
+      )),
       outputs: [],
     };
+
     for (const output of tx.outputs) {
       output.parseScript(req.wallet.getNetworkObject());
       const outputData = {
@@ -347,11 +355,55 @@ async function decodeTx(req, res) {
           outputData.decoded = {
             address: output.decodedScript.address.base58,
             timelock: output.decodedScript.timelock,
+            mine: await req.wallet.isAddressMine(output.decodedScript.address.base58)
           };
       }
       data.outputs.push(outputData);
     }
-    res.send({ success: true, tx: data });
+
+    // True if all the inputs are signed, false otherwise
+    data.completeSignatures = data.inputs.length > 0
+      ? data.inputs.every(input => input.signed) // true until find a false statement
+      : false; // empty data.inputs
+
+    // Get balance
+    const balance = {};
+    { // Default HTR balance.
+      const balanceObj = await req.wallet.getBalance(hathorLibConstants.HATHOR_TOKEN_CONFIG.uid);
+      balance[hathorLibConstants.HATHOR_TOKEN_CONFIG.uid] = ({
+        tokens: {
+          available: balanceObj[0].balance.unlocked,
+          locked: balanceObj[0].balance.locked,
+        },
+        authorities: {
+          melt: { available: 0, locked: 0 },
+          mint: { available: 0, locked: 0 },
+        }
+      });
+    }
+
+    // Other token balance if any
+    for (const token of data.tokens) {
+      const balanceObj = await req.wallet.getBalance(token);
+      balance[token] = ({
+        tokens: {
+          available: balanceObj[0].balance.unlocked,
+          locked: balanceObj[0].balance.locked,
+        },
+        authorities: {
+          melt: {
+            available: balanceObj[0].tokenAuthorities.unlocked.melt,
+            locked: balanceObj[0].tokenAuthorities.locked.melt,
+          },
+          mint: {
+            available: balanceObj[0].tokenAuthorities.unlocked.mint,
+            locked: balanceObj[0].tokenAuthorities.locked.mint,
+          },
+        }
+      });
+    }
+
+    res.send({ success: true, tx: data, balance });
   } catch (err) {
     res.send({ success: false, error: err.message });
   }
