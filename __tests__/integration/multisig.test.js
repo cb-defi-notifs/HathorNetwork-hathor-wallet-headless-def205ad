@@ -12,6 +12,12 @@ describe('send tx (HTR)', () => {
   let wallet4;
   let wallet5;
   let walletExtra;
+  let wallets;
+  const tokenA = {
+    name: 'Token A',
+    symbol: 'TKA',
+    uid: null
+  };
 
   const { words, pubkeys, walletConfig } = multisigWalletsData;
 
@@ -84,6 +90,21 @@ describe('send tx (HTR)', () => {
 
       // Awaiting for updated balances to be received by the websocket
       await TestUtils.pauseForWsUpdate();
+
+      // Set wallets
+      wallets = [wallet1, wallet2, wallet3, wallet4, wallet5];
+
+      // Creating a token for the tests
+      const tkAtxHex = await wallet1.buildCreateToken({
+        name: tokenA.name,
+        symbol: tokenA.symbol,
+        amount: 500,
+        address: await wallet1.getAddressAt(0),
+      });
+
+      // try to send
+      const tkAtx = await wallet1.signAndPush({ txHex: tkAtxHex, wallets, xSignatures: 3 });
+      tokenA.uid = tkAtx.hash;
     } catch (err) {
       TestUtils.logError(err.stack);
     }
@@ -299,5 +320,454 @@ describe('send tx (HTR)', () => {
       // This will test that the change address belongs to the wallet
       expect(wallet1.addresses).toContain(decoded.address.base58);
     }
+  });
+
+  // create-tokens, mint-tokens, melt-tokens, decode
+  it('should create, mint and melt tokens with minimum signatures', async () => {
+    // # Create Token
+    const address = precalculatedMultisig[0].addresses[0];
+    let response = await TestUtils.request
+      .post('/wallet/p2sh/tx-proposal/create-token')
+      .send({
+        name: 'My Custom Token',
+        symbol: 'MCT',
+        amount: 100,
+        address,
+      })
+      .set({ 'x-wallet-id': wallet1.walletId });
+    expect(response.body.success).toBe(true);
+
+    let { txHex } = response.body;
+    const txHexToDecode = txHex;
+
+    // collect signatures from 3 wallets
+    const wallets = [wallet1, wallet2, wallet3, wallet4, wallet5];
+    let signatures = await TestUtils.getXSignatures(txHex, wallets, 3);
+
+    // try to send
+    response = await TestUtils.request
+      .post('/wallet/p2sh/tx-proposal/sign-and-push')
+      .send({ txHex, signatures })
+      .set({ 'x-wallet-id': wallet1.walletId });
+
+    await TestUtils.pauseForWsUpdate();
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.hash).toBeDefined();
+
+    const tokenUid = response.body.hash;
+    let mctBalance = await wallet1.getBalance(tokenUid);
+    expect(mctBalance.available).toBe(100);
+
+    // # Mint
+    response = await TestUtils.request
+      .post('/wallet/p2sh/tx-proposal/mint-tokens')
+      .send({
+        token: tokenUid,
+        amount: 1,
+        address,
+      })
+      .set({ 'x-wallet-id': wallet1.walletId });
+    expect(response.body.success).toBe(true);
+
+    txHex = response.body.txHex;
+    // collect signatures from 3 wallets
+    signatures = await TestUtils.getXSignatures(txHex, wallets, 3);
+
+    // try to send
+    response = await TestUtils.request
+      .post('/wallet/p2sh/tx-proposal/sign-and-push')
+      .send({ txHex, signatures })
+      .set({ 'x-wallet-id': wallet1.walletId });
+
+    await TestUtils.pauseForWsUpdate();
+
+    mctBalance = await wallet1.getBalance(tokenUid);
+    expect(mctBalance.available).toBe(101);
+
+    // # Melt
+    response = await TestUtils.request
+      .post('/wallet/p2sh/tx-proposal/melt-tokens')
+      .send({
+        token: tokenUid,
+        amount: 1,
+        deposit_address: address,
+        change_address: address,
+      })
+      .set({ 'x-wallet-id': wallet1.walletId });
+    expect(response.body.success).toBe(true);
+
+    txHex = response.body.txHex;
+    // collect signatures from 3 wallets
+    signatures = await TestUtils.getXSignatures(txHex, wallets, 3);
+
+    // try to send
+    response = await TestUtils.request
+      .post('/wallet/p2sh/tx-proposal/sign-and-push')
+      .send({ txHex, signatures })
+      .set({ 'x-wallet-id': wallet1.walletId });
+
+    await TestUtils.pauseForWsUpdate();
+
+    mctBalance = await wallet1.getBalance(tokenUid);
+    expect(mctBalance.available).toBe(100);
+
+    // Decode
+    response = await TestUtils.request
+      .post('/wallet/decode')
+      .send({ txHex: txHexToDecode })
+      .set({ 'x-wallet-id': wallet1.walletId });
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      success: true,
+      tx: expect.objectContaining({
+        completeSignatures: false,
+        tokens: [],
+        inputs: [
+          expect.objectContaining({
+            signed: false,
+          }),
+        ],
+        outputs: expect.arrayContaining([
+          expect.objectContaining({
+            decoded: expect.objectContaining({
+              mine: true,
+            }),
+            tokenData: 0,
+            type: 'p2sh',
+          }),
+          expect.objectContaining({
+            decoded: expect.objectContaining({
+              mine: true,
+            }),
+            tokenData: 1,
+            type: 'p2sh',
+          }),
+          expect.objectContaining({
+            decoded: expect.objectContaining({
+              mine: true,
+            }),
+            tokenData: 129,
+            type: 'p2sh',
+            value: 1,
+          }),
+          expect.objectContaining({
+            decoded: expect.objectContaining({
+              mine: true,
+            }),
+            tokenData: 129,
+            type: 'p2sh',
+            value: 2,
+          }),
+        ]),
+      }),
+      balance: expect.objectContaining({
+        '00': expect.objectContaining({
+          tokens: expect.objectContaining({
+            available: expect.any(Number),
+            locked: expect.any(Number),
+          }),
+          authorities: expect.objectContaining({
+            melt: { available: 0, locked: 0 },
+            mint: { available: 0, locked: 0 },
+          }),
+        }),
+      }),
+    });
+  });
+
+  // create-token
+  it('should fail to send a create-token transaction with less than minimum signatures', async () => {
+    const address = precalculatedMultisig[0].addresses[0];
+    let response = await TestUtils.request
+      .post('/wallet/p2sh/tx-proposal/create-token')
+      .send({
+        name: 'My Custom Token',
+        symbol: 'MCT',
+        amount: 100,
+        address,
+      })
+      .set({ 'x-wallet-id': wallet1.walletId });
+    expect(response.body.success).toBe(true);
+
+    let { txHex } = response.body;
+
+    // collect signatures from 3 wallets
+    const wallets = [wallet1, wallet2, wallet3, wallet4, wallet5];
+    let signatures = await TestUtils.getXSignatures(txHex, wallets, 2);
+
+    // try to send
+    response = await TestUtils.request
+      .post('/wallet/p2sh/tx-proposal/sign-and-push')
+      .send({ txHex, signatures })
+      .set({ 'x-wallet-id': wallet1.walletId });
+
+    await TestUtils.pauseForWsUpdate();
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(false);
+    expect(response.body.error).toBeDefined();
+  });
+
+  it('Should fail to send a create-token transaction with incorrect signatures', async () => {
+    const address = await wallet1.getAddressAt(0);
+    let response = await TestUtils.request
+      .post('/wallet/p2sh/tx-proposal/create-token')
+      .send({
+        name: 'My Custom Token',
+        symbol: 'MCT',
+        amount: 100,
+        address,
+      })
+      .set({ 'x-wallet-id': wallet1.walletId });
+    expect(response.body.success).toBe(true);
+
+    let { txHex } = response.body;
+
+    // collect signatures from 3 wallets
+    const wallets = [wallet1, wallet2, wallet3, wallet4, wallet5];
+    const signatures = await TestUtils.getXSignatures(txHex, wallets, 2);
+    const pubkey = precalculatedMultisig[0].multisigDebugData.pubkeys[0];
+    const invalidP2shSig = new hathorLib.P2SHSignature(pubkey, {});
+    signatures.push(invalidP2shSig.serialize());
+
+    // try to send
+    response = await TestUtils.request
+      .post('/wallet/p2sh/tx-proposal/sign-and-push')
+      .send({ txHex, signatures })
+      .set({ 'x-wallet-id': wallet1.walletId });
+
+    await TestUtils.pauseForWsUpdate();
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(false);
+    expect(response.body.error).toBeDefined();
+  });
+
+  it('Should fail to send a create-token transaction with more than min signatures', async () => {
+    const address = await wallet1.getAddressAt(0);
+    let response = await TestUtils.request
+      .post('/wallet/p2sh/tx-proposal/create-token')
+      .send({
+        name: 'My Custom Token',
+        symbol: 'MCT',
+        amount: 100,
+        address,
+      })
+      .set({ 'x-wallet-id': wallet1.walletId });
+    expect(response.body.success).toBe(true);
+
+    let { txHex } = response.body;
+
+    // collect signatures from 3 wallets
+    const wallets = [wallet1, wallet2, wallet3, wallet4, wallet5];
+    let signatures = await TestUtils.getXSignatures(txHex, wallets, 4);
+
+    // try to send
+    response = await TestUtils.request
+      .post('/wallet/p2sh/tx-proposal/sign-and-push')
+      .send({ txHex, signatures })
+      .set({ 'x-wallet-id': wallet1.walletId });
+
+    await TestUtils.pauseForWsUpdate();
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(false);
+    expect(response.body.error).toBeDefined();
+  });
+  
+  // mint-token
+  it('Should fail to send a mint-token transaction with less than minimum signatures', async () => {
+    const address = await wallet1.getAddressAt(0);
+    let response = await TestUtils.request
+      .post('/wallet/p2sh/tx-proposal/mint-tokens')
+      .send({
+        token: tokenA.uid,
+        amount: 500,
+        address,
+        change_address: address,
+      })
+      .set({ 'x-wallet-id': wallet1.walletId });
+    expect(response.body.success).toBe(true);
+
+    let { txHex } = response.body;
+
+    // collect signatures from 3 wallets
+    let signatures = await TestUtils.getXSignatures(txHex, wallets, 2);
+
+    // try to send
+    response = await TestUtils.request
+      .post('/wallet/p2sh/tx-proposal/sign-and-push')
+      .send({ txHex, signatures })
+      .set({ 'x-wallet-id': wallet1.walletId });
+
+    await TestUtils.pauseForWsUpdate();
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(false);
+    expect(response.body.error).toBeDefined();
+  });
+
+  it('Should fail to send a mint-token transaction with incorrect signatures', async () => {
+    const address = precalculatedMultisig[0].addresses[0];
+    let response = await TestUtils.request
+      .post('/wallet/p2sh/tx-proposal/mint-tokens')
+      .send({
+        token: tokenA.uid,
+        amount: 500,
+        address,
+        change_address: address,
+      })
+      .set({ 'x-wallet-id': wallet1.walletId });
+    expect(response.body.success).toBe(true);
+
+    let { txHex } = response.body;
+
+    // collect signatures from 3 wallets
+    let signatures = await TestUtils.getXSignatures(txHex, wallets, 2);
+    const pubkey = precalculatedMultisig[0].multisigDebugData.pubkeys[0];
+    const invalidP2shSig = new hathorLib.P2SHSignature(pubkey, {});
+    signatures.push(invalidP2shSig.serialize());
+
+    // try to send
+    response = await TestUtils.request
+      .post('/wallet/p2sh/tx-proposal/sign-and-push')
+      .send({ txHex, signatures })
+      .set({ 'x-wallet-id': wallet1.walletId });
+
+    await TestUtils.pauseForWsUpdate();
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(false);
+    expect(response.body.error).toBeDefined();
+  });
+
+  it('Should fail to send a mint-token transaction with more than min signatures', async () => {
+    const address = precalculatedMultisig[0].addresses[0];
+    let response = await TestUtils.request
+      .post('/wallet/p2sh/tx-proposal/mint-tokens')
+      .send({
+        token: tokenA.uid,
+        amount: 500,
+        address,
+        change_address: address,
+      })
+      .set({ 'x-wallet-id': wallet1.walletId });
+    expect(response.body.success).toBe(true);
+
+    let { txHex } = response.body;
+
+    // collect signatures from 3 wallets
+    let signatures = await TestUtils.getXSignatures(txHex, wallets, 4);
+
+    // try to send
+    response = await TestUtils.request
+      .post('/wallet/p2sh/tx-proposal/sign-and-push')
+      .send({ txHex, signatures })
+      .set({ 'x-wallet-id': wallet1.walletId });
+
+    await TestUtils.pauseForWsUpdate();
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(false);
+    expect(response.body.error).toBeDefined();
+  });
+
+  // melt-token
+  it('Should fail to send a melt-token transaction with less than minimum signatures', async () => {
+    const address = precalculatedMultisig[0].addresses[0];
+    let response = await TestUtils.request
+      .post('/wallet/p2sh/tx-proposal/melt-tokens')
+      .send({
+        token: tokenA.uid,
+        amount: 500,
+        deposit_address: address,
+        change_address: address,
+      })
+      .set({ 'x-wallet-id': wallet1.walletId });
+    expect(response.body.success).toBe(true);
+
+    let { txHex } = response.body;
+
+    // collect signatures from 3 wallets
+    let signatures = await TestUtils.getXSignatures(txHex, wallets, 2);
+
+    // try to send
+    response = await TestUtils.request
+      .post('/wallet/p2sh/tx-proposal/sign-and-push')
+      .send({ txHex, signatures })
+      .set({ 'x-wallet-id': wallet1.walletId });
+
+    await TestUtils.pauseForWsUpdate();
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(false);
+    expect(response.body.error).toBeDefined();
+  });
+
+  it('Should fail to send a melt-token transaction with incorrect signatures', async () => {
+    const address = precalculatedMultisig[0].addresses[0];
+    let response = await TestUtils.request
+      .post('/wallet/p2sh/tx-proposal/melt-tokens')
+      .send({
+        token: tokenA.uid,
+        amount: 500,
+        deposit_address: address,
+        change_address: address,
+      })
+      .set({ 'x-wallet-id': wallet1.walletId });
+    expect(response.body.success).toBe(true);
+
+    let { txHex } = response.body;
+
+    // collect signatures from 3 wallets
+    let signatures = await TestUtils.getXSignatures(txHex, wallets, 2);
+    const pubkey = precalculatedMultisig[0].multisigDebugData.pubkeys[0];
+    const invalidP2shSig = new hathorLib.P2SHSignature(pubkey, {});
+    signatures.push(invalidP2shSig.serialize());
+
+    // try to send
+    response = await TestUtils.request
+      .post('/wallet/p2sh/tx-proposal/sign-and-push')
+      .send({ txHex, signatures })
+      .set({ 'x-wallet-id': wallet1.walletId });
+
+    await TestUtils.pauseForWsUpdate();
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(false);
+    expect(response.body.error).toBeDefined();
+  });
+
+  it('Should fail to send a melt-token transaction with more than min signatures', async () => {
+    const address = precalculatedMultisig[0].addresses[0];
+    let response = await TestUtils.request
+      .post('/wallet/p2sh/tx-proposal/melt-tokens')
+      .send({
+        token: tokenA.uid,
+        amount: 500,
+        deposit_address: address,
+        change_address: address,
+      })
+      .set({ 'x-wallet-id': wallet1.walletId });
+    expect(response.body.success).toBe(true);
+
+    let { txHex } = response.body;
+
+    // collect signatures from 3 wallets
+    let signatures = await TestUtils.getXSignatures(txHex, wallets, 4);
+
+    // try to send
+    response = await TestUtils.request
+      .post('/wallet/p2sh/tx-proposal/sign-and-push')
+      .send({ txHex, signatures })
+      .set({ 'x-wallet-id': wallet1.walletId });
+
+    await TestUtils.pauseForWsUpdate();
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(false);
+    expect(response.body.error).toBeDefined();
   });
 });
