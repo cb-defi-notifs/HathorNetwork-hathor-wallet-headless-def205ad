@@ -51,6 +51,7 @@ async function buildTxProposal(req, res) {
 
     res.send({ success: true, txHex: tx.toHex() });
   } catch (err) {
+    console.error(err);
     res.send({ success: false, error: err.message });
   }
 }
@@ -93,6 +94,7 @@ async function buildMeltTokensTxProposal(req, res) {
 
     res.send({ success: true, txHex: meltTokenTransaction.toHex() });
   } catch (err) {
+    console.error(err);
     res.send({ success: false, error: err.message });
   }
 }
