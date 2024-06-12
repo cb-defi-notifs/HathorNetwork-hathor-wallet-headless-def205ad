@@ -5,17 +5,15 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-// import is used because there is an issue with winston logger when using require ref: #262
-import logger from '../../logger'; // eslint-disable-line import/no-import-module-exports
-
-const { txApi, walletApi, WalletType, constants: hathorLibConstants, helpersUtils, errors, tokensUtils, PartialTx } = require('@hathor/wallet-lib');
+const { constants: { HATHOR_TOKEN_CONFIG, TOKEN_INDEX_MASK } } = require('@hathor/wallet-lib');
+const { txApi, walletApi, WalletType, constants: hathorLibConstants, helpersUtils, errors, tokensUtils, transactionUtils, PartialTx } = require('@hathor/wallet-lib');
 const { matchedData } = require('express-validator');
+// import is used because there is an issue with winston logger when using require ref: #262
 const { parametersValidation } = require('../../helpers/validations.helper');
 const { lock, lockTypes } = require('../../lock');
 const { cantSendTxErrorMessage, friendlyWalletState } = require('../../helpers/constants');
-const { mapTxReturn, prepareTxFunds } = require('../../helpers/tx.helper');
-const { initializedWallets } = require('../../services/wallets.service');
-const { removeAllWalletProposals } = require('../../services/atomic-swap.service');
+const { mapTxReturn, prepareTxFunds, getTx } = require('../../helpers/tx.helper');
+const { stopWallet } = require('../../services/wallets.service');
 
 async function getStatus(req, res) {
   /**
@@ -281,6 +279,7 @@ async function simpleSendTx(req, res) {
     );
     res.send({ success: true, ...mapTxReturn(response) });
   } catch (err) {
+    console.error(err);
     res.send({ success: false, error: err.message });
   } finally {
     lock.unlock(lockTypes.SEND_TX);
@@ -288,6 +287,15 @@ async function simpleSendTx(req, res) {
 }
 
 async function decodeTx(req, res) {
+  function getToken(utxo, txObj) {
+    if (utxo.token) return utxo.token;
+    if (utxo.token_data === 0) return HATHOR_TOKEN_CONFIG.uid;
+
+    const tokenIndex = (utxo.token_data & TOKEN_INDEX_MASK) - 1;
+    if (txObj.tokens.length > tokenIndex) return txObj.tokens[tokenIndex];
+    return undefined;
+  }
+
   const validationResult = parametersValidation(req);
   if (!validationResult.success) {
     res.status(400).json(validationResult);
@@ -318,22 +326,61 @@ async function decodeTx(req, res) {
       }
       tx = partial.getTx();
     }
+
     const data = {
+      version: tx.version,
+      type: tx.getType(),
       tokens: tx.tokens,
-      inputs: tx.inputs.map(input => ({ txId: input.hash, index: input.index })),
+      inputs: [],
       outputs: [],
     };
+
+    for (const input of tx.inputs) {
+      const _tx = await getTx(req.wallet, input.hash);
+      if (!_tx) {
+        throw new Error(`Could not find input transaction for txId ${input.hash}`);
+      }
+
+      const utxo = _tx.outputs[input.index];
+      const inputData = {
+        txId: input.hash,
+        index: input.index,
+        decoded: utxo.decoded,
+        token: getToken(utxo, _tx),
+        value: utxo.value,
+        // This is required by transactionUtils.getTxBalance
+        // It should be ignored by users
+        token_data: utxo.token_data,
+        // User facing duplication to keep scheme consistency
+        tokenData: utxo.token_data,
+        script: utxo.script,
+        signed: !!input.data,
+        mine: await req.wallet.isAddressMine(utxo.decoded.address),
+      };
+
+      data.inputs.push(inputData);
+    }
+
     for (const output of tx.outputs) {
       output.parseScript(req.wallet.getNetworkObject());
+
       const outputData = {
         value: output.value,
+        // This is required by transactionUtils.getTxBalance
+        // It should be ignored by users
+        token_data: output.tokenData,
+        // User facing duplication to keep scheme consistency
         tokenData: output.tokenData,
         script: output.script.toString('base64'),
         type: output.decodedScript.getType(),
         decoded: output.decodedScript,
+        mine: false,
       };
+
       if (output.tokenData !== 0) {
         outputData.token = tx.tokens[output.getTokenIndex()];
+      } else {
+        outputData.token = HATHOR_TOKEN_CONFIG.uid;
       }
       switch (outputData.type) {
         case 'data':
@@ -348,10 +395,39 @@ async function decodeTx(req, res) {
             address: output.decodedScript.address.base58,
             timelock: output.decodedScript.timelock,
           };
+          outputData.mine = await req.wallet.isAddressMine(output.decodedScript.address.base58);
       }
       data.outputs.push(outputData);
     }
-    res.send({ success: true, tx: data });
+
+    // True if all the inputs are signed, false otherwise
+    data.completeSignatures = data.inputs.length > 0
+      ? data.inputs.every(input => input.signed) // true until find a false statement
+      : false; // empty data.inputs
+
+    // Get balance
+    const balance = {};
+    const balanceObj = await transactionUtils.getTxBalance(data, req.wallet.storage);
+    for (const token of Object.keys(balanceObj)) {
+      balance[token] = ({
+        tokens: {
+          available: balanceObj[token].tokens.unlocked,
+          locked: balanceObj[token].tokens.locked,
+        },
+        authorities: {
+          melt: {
+            available: balanceObj[token].authorities.melt.unlocked,
+            locked: balanceObj[token].authorities.melt.locked,
+          },
+          mint: {
+            available: balanceObj[token].authorities.mint.unlocked,
+            locked: balanceObj[token].authorities.mint.locked,
+          },
+        }
+      });
+    }
+
+    res.send({ success: true, tx: data, balance });
   } catch (err) {
     res.send({ success: false, error: err.message });
   }
@@ -403,7 +479,7 @@ async function sendTx(req, res) {
   } catch (err) {
     const ret = { success: false, error: err.message };
     if (debug) {
-      logger.debug('/send-tx failed', {
+      console.debug('/send-tx failed', {
         body: JSON.stringify(req.body),
         response: JSON.stringify(ret),
       });
@@ -441,6 +517,7 @@ async function createToken(req, res) {
   const createMelt = req.body.create_melt ?? true;
   const meltAuthorityAddress = req.body.melt_authority_address || null;
   const allowExternalMeltAuthorityAddress = req.body.allow_external_melt_authority_address || false;
+  const data = req.body.data || null;
   try {
     if (changeAddress && !await wallet.isAddressMine(changeAddress)) {
       throw new Error('Change address is not from this wallet');
@@ -459,6 +536,7 @@ async function createToken(req, res) {
         createMelt,
         meltAuthorityAddress,
         allowExternalMeltAuthorityAddress,
+        data,
       }
     );
 
@@ -672,11 +750,7 @@ async function createNft(req, res) {
 
 async function stop(req, res) {
   // Stop wallet and remove from wallets object
-  const { wallet } = req;
-  await wallet.stop();
-
-  initializedWallets.delete(req.walletId);
-  await removeAllWalletProposals(req.walletId);
+  await stopWallet(req.walletId);
   res.send({ success: true });
 }
 

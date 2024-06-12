@@ -6,7 +6,7 @@
  */
 
 import path from 'path';
-import config from '../config';
+import settings from '../settings';
 
 import { notificationBus, EVENTBUS_EVENT_NAME } from '../services/notification.service';
 
@@ -52,7 +52,7 @@ export const hathorPlugins = {
  *
  * @returns {string} Plugin module path
  */
-export const getPluginPath = pluginFile => path.resolve(path.join('./src/plugins', pluginFile));
+export const getPluginPath = pluginFile => path.resolve(path.join(__dirname, pluginFile));
 
 /**
  * Find and import a plugin returning the exported methods.
@@ -73,7 +73,7 @@ export const importPlugin = async pluginConfig => {
  * @param {string[]} enabled List of enabled plugins to import.
  * @param {Record<string, PluginConfig>} customConfig Custom plugin configuration.
  *
- * @returns {Promise<Plugin>[]} Array of plugin modules.
+ * @returns {Promise<Plugin[]>} Array of plugin modules.
  */
 export const loadPlugins = async (enabled, customConfig) => {
   const promises = [];
@@ -99,6 +99,8 @@ export const loadPlugins = async (enabled, customConfig) => {
 };
 
 export const main = async () => {
+  await settings.setupConfig();
+  const config = settings.getConfig();
   const plugins = await loadPlugins(config.enabled_plugins, config.plugin_config);
 
   // Start plugins
@@ -115,6 +117,7 @@ export const main = async () => {
 if (process.env.NODE_ENV !== 'test') {
   process.on('disconnect', () => {
     // If parent disconnects, we must exit to avoid running indefinetly
+    console.log('[child_process] parent disconnected');
     process.exit(127);
   });
 

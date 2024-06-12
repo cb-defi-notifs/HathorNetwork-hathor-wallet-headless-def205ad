@@ -6,8 +6,8 @@
  */
 
 const friendlyWalletState = require('../helpers/constants');
-const { initializedWallets } = require('../services/wallets.service');
-const config = require('../config');
+const { initializedWallets, isHsmWallet, hsmWalletIds } = require('../services/wallets.service');
+const settings = require('../settings');
 
 async function walletMiddleware(req, res, next) {
   const sendError = (message, state) => {
@@ -18,6 +18,8 @@ async function walletMiddleware(req, res, next) {
       statusMessage: (state ? friendlyWalletState[state] : ''),
     });
   };
+
+  const config = settings.getConfig();
 
   // Get X-WALLET-ID header that defines which wallet the request refers to
   if (!('x-wallet-id' in req.headers)) {
@@ -49,6 +51,11 @@ async function walletMiddleware(req, res, next) {
   // Adding to req parameter, so we don't need to get it in all requests
   req.wallet = wallet;
   req.walletId = walletId;
+
+  if (isHsmWallet(walletId)) {
+    req.hsmKeyName = hsmWalletIds.get(walletId);
+  }
+
   next();
 }
 

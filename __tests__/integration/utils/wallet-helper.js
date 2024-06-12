@@ -156,7 +156,6 @@ export class WalletHelper {
     for (const wallet of walletsArr) {
       await TestUtils.startWallet(wallet.walletData, { waitWalletReady: true });
       walletsPendingReady[wallet.walletId] = wallet;
-      await TestUtils.pauseForWsUpdate();
     }
 
     // Benchmark summary and finishing log
@@ -283,11 +282,12 @@ export class WalletHelper {
       .send(tokenCreationBody);
     txTimeHelper.informResponse(newTokenResponse.body.hash);
 
-    const transaction = TestUtils.handleTransactionResponse({
+    const transaction = await TestUtils.handleTransactionResponse({
       methodName: 'createToken',
       requestBody: tokenCreationBody,
       txResponse: newTokenResponse,
-      dontLogErrors: params.dontLogErrors
+      dontLogErrors: params.dontLogErrors,
+      walletIdsToWait: [this.#walletId],
     });
 
     TestUtils.log('Token Creation', {
@@ -296,8 +296,101 @@ export class WalletHelper {
       ...tokenCreationBody
     });
 
-    await TestUtils.pauseForWsUpdate();
+    return transaction;
+  }
 
+  /**
+   * Build a create-token transaction proposal.
+   *
+   * @param params
+   * @param {string} params.name Long name of the token
+   * @param {string} params.symbol Token symbol
+   * @param {number} params.amount of tokens to generate
+   * @param {string} [params.address] Destination address for the custom token
+   * @returns {Promise<string>} txHex as the transaction proposal
+   *
+   * XXX: only supports multisig
+   */
+  async buildCreateToken(params) {
+    if (!this.#multisig) {
+      throw new Error('The wallet is not a multisig.');
+    }
+
+    // no param null is allowed
+    const paramKeys = ['name', 'symbol', 'amount', 'address'];
+    for (const key of paramKeys) {
+      if (!params[key]) {
+        throw new Error(`'${key} param can not be null or undefined.'`);
+      }
+    }
+
+    const response = await TestUtils.request
+      .post('/wallet/p2sh/tx-proposal/create-token')
+      .send({
+        name: params.name,
+        symbol: params.symbol,
+        amount: params.amount,
+        address: params.address,
+        change_address: params.address,
+      })
+      .set({ 'x-wallet-id': this.#walletId });
+    return response.body.txHex;
+  }
+
+  /**
+   * Sign the transaction proposal and send the signed transaction.
+   *
+   * @param params
+   * @param {string} params.txHex Transaction proposal
+   * @param {string} params.wallets Set of all wallets composing the multisig wallet
+   * @param {number} params.xSignatures Number X of signatures to be generated for the transaction
+   * @param {boolean} [params.dontLogErrors] Skip logging errors.
+   * @returns {Promise<unknown>} Sent transaction
+   *
+   * XXX: only supports multisig
+   */
+  async signAndPush(params) {
+    if (!this.#multisig) {
+      throw new Error('The wallet is not a multisig.');
+    }
+    const {
+      txHex = null,
+      wallets = null,
+      xSignatures = null,
+    } = params;
+    const _params = { txHex, wallets, xSignatures };
+
+    // no param null is allowed
+    for (const key of Object.keys(_params)) {
+      if (!_params[key]) {
+        throw new Error(`'${key} param can not be null.'`);
+      }
+    }
+
+    // Creating the request body from mandatory and optional parameters
+    const tokenCreationBody = {
+      txHex: _params.txHex,
+      signatures: await TestUtils.getXSignatures(
+        _params.txHex,
+        _params.wallets,
+        _params.xSignatures
+      ),
+    };
+
+    const newTokenResponse = await TestUtils.request
+      .post('/wallet/p2sh/tx-proposal/sign-and-push')
+      .send(tokenCreationBody)
+      .set({ 'x-wallet-id': this.#walletId });
+
+    const transaction = await TestUtils.handleTransactionResponse({
+      methodName: 'createToken',
+      requestBody: tokenCreationBody,
+      txResponse: newTokenResponse,
+      dontLogErrors: params.dontLogErrors,
+      walletIdsToWait: [this.#walletId],
+    });
+
+    TestUtils.log('Sign and push transaction', { transaction });
     return transaction;
   }
 
@@ -379,11 +472,17 @@ export class WalletHelper {
       .set(TestUtils.generateHeader(this.#walletId));
     txTimeHelper.informResponse(response.body.hash);
 
-    const transaction = TestUtils.handleTransactionResponse({
+    const walletIdsToWait = [this.#walletId];
+    if (options.destinationWallet) {
+      walletIdsToWait.push(options.destinationWallet);
+    }
+
+    const transaction = await TestUtils.handleTransactionResponse({
       methodName: 'sendTx',
       requestBody: sendOptions,
       txResponse: response,
-      dontLogErrors: options.dontLogErrors
+      dontLogErrors: options.dontLogErrors,
+      walletIdsToWait,
     });
 
     // Logs the results
@@ -399,8 +498,6 @@ export class WalletHelper {
       metadata.destinationWallet = options.destinationWallet;
     }
     await TestUtils.log('send-tx', metadata);
-
-    await TestUtils.pauseForWsUpdate();
 
     return transaction;
   }

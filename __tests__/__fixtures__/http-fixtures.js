@@ -1,5 +1,8 @@
 export default {
-  '/v1a/version': {
+  'http://fake.txmining:8084/health': {
+    status: 'pass'
+  },
+  'http://fakehost:8083/v1a/version': {
     version: '0.38.4',
     network: 'testnet-foxtrot',
     min_weight: 8,
@@ -10,6 +13,9 @@ export default {
     reward_spend_min_blocks: 0,
     max_number_inputs: 255,
     max_number_outputs: 255,
+  },
+  'http://fakehost:8083/v1a/health': {
+    status: 'pass',
   },
   '/thin_wallet/address_history': {
     success: true,
@@ -696,7 +702,47 @@ export default {
               address: 'WewDeXWyvHP7jJTs7tjLoQfoB72LLxJQqN',
               timelock: 32522094000,
             },
-            token: '03',
+            token: '0000073b972162f70061f61cf0082b7a47263cc1659a05976aca5cd01b3351ee',
+            spent_by: null,
+            selected_as_input: false,
+          },
+          {
+            value: 1,
+            token_data: 129,
+            script: 'qRTqJUJmzEmBNvhkmDuZ4JxcMh5/ioc=',
+            decoded: {
+              type: 'P2SH',
+              address: 'wgyUgNjqZ18uYr4YfE2ALW6tP5hd8MumH5',
+              timelock: null
+            },
+            token: '0000073b972162f70061f61cf0082b7a47263cc1659a05976aca5cd01b3351ee',
+            spent_by: null,
+            selected_as_input: false,
+          },
+          {
+            value: 200,
+            token_data: 1,
+            script: 'dqkU/qcZVmiK7oEMzDyVX9kwfldkR8CIrA==',
+            decoded: {
+              type: 'P2SH',
+              address: 'wgyUgNjqZ18uYr4YfE2ALW6tP5hd8MumH5',
+              timelock: null
+            },
+            token:
+              '0000073b972162f70061f61cf0082b7a47263cc1659a05976aca5cd01b3351ee',
+            spent_by: null,
+            selected_as_input: false,
+          },
+          {
+            value: 2,
+            token_data: 129,
+            script: 'qRTqJUJmzEmBNvhkmDuZ4JxcMh5/ioc=',
+            decoded: {
+              type: 'P2SH',
+              address: 'wgyUgNjqZ18uYr4YfE2ALW6tP5hd8MumH5',
+              timelock: null
+            },
+            token: '0000073b972162f70061f61cf0082b7a47263cc1659a05976aca5cd01b3351ee',
             spent_by: null,
             selected_as_input: false,
           },
@@ -720,7 +766,7 @@ export default {
           '00e161a6b0bee1781ea9300680913fb76fd0fac4acab527cd9626cc1514abdc9',
         ],
         height: 19,
-        tokens: ['03']
+        tokens: ['0000073b972162f70061f61cf0082b7a47263cc1659a05976aca5cd01b3351ee']
       },
       {
         tx_id:
@@ -965,8 +1011,91 @@ export default {
       first_block_height: 1234,
     },
   },
+  '/transaction?id=5c02adea056d7b43e83171a0e2d226d564c791d583b32e9a404ef53a2e1b363a': {
+    success: true,
+    tx: {
+      hash: '5c02adea056d7b43e83171a0e2d226d564c791d583b32e9a404ef53a2e1b363a',
+      version: 4,
+      nc_blueprint_id: '3cb032600bdf7db784800e4ea911b10676fa2f67591f82bb62628c234e771595',
+    },
+  },
   '/getmininginfo': {
     success: true,
     blocks: 1242,
+  },
+  '/nano_contract/state': {
+    success: true,
+    nc_id: '3cb032600bdf7db784800e4ea911b10676fa2f67591f82bb62628c234e771595',
+    blueprint_name: 'Bet',
+    fields: {
+      token_uid: { value: '00' },
+      total: { value: 300 },
+      final_result: { value: '1x0' },
+      oracle_script: { value: '76a91441c431ff7ad5d6ce5565991e3dcd5d9106cfd1e288ac' },
+      'withdrawals.a\'Wi8zvxdXHjaUVAoCJf52t3WovTZYcU9aX6\'': { value: 300 },
+      'address_details.a\'Wi8zvxdXHjaUVAoCJf52t3WovTZYcU9aX6\'': { value: { '1x0': 100 } },
+    }
+  },
+  '/nano_contract/history': {
+    success: true,
+    count: 100,
+    history: [{
+      hash: '5c02adea056d7b43e83171a0e2d226d564c791d583b32e9a404ef53a2e1b363a',
+      nonce: 0,
+      timestamp: 1572636346,
+      version: 4,
+      weight: 1,
+      signal_bits: 0,
+      parents: ['1234', '5678'],
+      inputs: [],
+      outputs: [],
+      metadata: {
+        hash: '5c02adea056d7b43e83171a0e2d226d564c791d583b32e9a404ef53a2e1b363a',
+        spent_outputs: [],
+        received_by: [],
+        children: [],
+        conflict_with: [],
+        voided_by: [],
+        twins: [],
+        accumulated_weight: 1,
+        score: 0,
+        height: 0,
+        min_height: 0,
+        feature_activation_bit_counts: null,
+        first_block: null,
+        validation: 'full'
+      },
+      tokens: [],
+      nc_id: '5c02adea056d7b43e83171a0e2d226d564c791d583b32e9a404ef53a2e1b363a',
+      nc_method: 'initialize',
+      nc_args: '0004313233340001000004654d8749',
+      nc_pubkey: '033f5d238afaa9e2218d05dd7fa50eb6f9e55431e6359e04b861cd991ae24dc655'
+    }]
+  },
+  '/nano_contract/blueprint': {
+    id: '3cb032600bdf7db784800e4ea911b10676fa2f67591f82bb62628c234e771595',
+    name: 'Test',
+    public_methods: {
+      initialize: {
+        args: [
+          { type: 'int', name: 'a' },
+          { type: 'bytes', name: 'b' }
+        ]
+      },
+      bet: {
+        args: [
+          { type: 'int', name: 'a' },
+          { type: 'bytes', name: 'b' }
+        ]
+      },
+    },
+  },
+  '/nano_contract/oracle-data': {
+    success: true,
+    oracleData: '1234'
+  },
+  '/nano_contract/oracle-signed-result': {
+    success: true,
+    signedResult: '123456,1x0,str'
   },
 };

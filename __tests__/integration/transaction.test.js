@@ -18,7 +18,7 @@ describe('transaction routes', () => {
     await wallet1.stop();
   });
 
-  it('should return an error for an invalid transaction', async done => {
+  it('should return an error for an invalid transaction', async () => {
     const response = await TestUtils.request
       .get('/wallet/transaction')
       .query({
@@ -28,10 +28,9 @@ describe('transaction routes', () => {
 
     expect(response.status).toBe(200);
     expect(response.body).toHaveProperty('success', false);
-    done();
   });
 
-  it('should return success for a valid transaction', async done => {
+  it('should return success for a valid transaction', async () => {
     // Generates a transaction
     const tx = await wallet1.injectFunds(1);
     const txId = tx.hash;
@@ -48,10 +47,9 @@ describe('transaction routes', () => {
     expect(response.body).toHaveProperty('is_voided', false);
     expect(response.body).toHaveProperty('tx_id', txId);
     expect(response.body).toHaveProperty('version', tx.version);
-    done();
   });
 
-  it('test confirmation blocks', async done => {
+  it('test confirmation blocks', async () => {
     // Generates a transaction
     const tx = await wallet1.injectFunds(1);
     const txId = tx.hash;
@@ -73,7 +71,14 @@ describe('transaction routes', () => {
 
     let firstBlockHeight = txData1.meta.first_block_height;
     if (firstBlockHeight === null) {
+      // The idea here is to wait until the first_block_height metadata is filled in the transaction
+      // When a block is mined, the miner sends it to the full node and starts mining the new block
+      // from time to time, it updates the block template requesting the full node, maybe even
+      // getting new parents for the next block but if the mining succeeds fast, it won't have the
+      // new transactions as parents. That's why I'm waiting 2 blocks to guarantee the tx will be
+      // confirmed by at least one of them
       await TestUtils.waitNewBlock(height);
+      await TestUtils.waitNewBlock(height + 1);
       const txData2 = await TestUtils.getFullNodeTransactionData(txId);
       firstBlockHeight = txData2.meta.first_block_height;
       expect(firstBlockHeight).not.toBeNull();
@@ -93,7 +98,5 @@ describe('transaction routes', () => {
     // We will have at least the first block confirming plus one (with the await above)
     expect(response2.body.confirmationNumber).toBeGreaterThan(0);
     expect(response2.body.confirmationNumber).toBeLessThanOrEqual(newHeight - firstBlockHeight);
-
-    done();
   });
 });

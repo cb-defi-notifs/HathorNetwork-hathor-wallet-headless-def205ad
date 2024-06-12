@@ -1,11 +1,12 @@
-import { helpersUtils, Network, walletUtils } from '@hathor/wallet-lib';
-import config from './configuration/config-fixture';
+import { walletUtils, transactionUtils } from '@hathor/wallet-lib';
 import { precalculationHelpers, singleMultisigWalletData } from '../../scripts/helpers/wallet-precalculation.helper';
 import { TestUtils } from './utils/test-utils-integration';
 import { loggers } from './utils/logger.util';
 import { WalletHelper } from './utils/wallet-helper';
+import settings from '../../src/settings';
 
 function newReadOnlyWallet() {
+  const config = settings.getConfig();
   const accountDerivationIndex = '0\'/0';
   const { words, addresses } = precalculationHelpers.test.getPrecalculatedWallet();
   const xpubkey = walletUtils.getXPubKeyFromSeed(words, {
@@ -19,11 +20,15 @@ describe('Readonly wallet', () => {
   const { walletConfig: multisigWalletConfig } = singleMultisigWalletData;
 
   beforeAll(async () => {
-    global.config.multisig = { multisig: multisigWalletConfig };
+    const config = settings.getConfig();
+    config.multisig = { multisig: multisigWalletConfig };
+    settings._setConfig(config);
   });
 
   afterAll(async () => {
-    global.config.multisig = {};
+    const config = settings.getConfig();
+    config.multisig = {};
+    settings._setConfig(config);
   });
 
   it('should start readonly wallets', async () => {
@@ -91,7 +96,7 @@ describe('Readonly wallet', () => {
 
   it('should create a transaction to be signed offline', async () => {
     const walletId = 'readonlyCreateTx';
-    const { xpubkey, addresses } = newReadOnlyWallet();
+    const { xpubkey, addresses, words } = newReadOnlyWallet();
 
     let response = await TestUtils.request
       .post('/start')
@@ -133,24 +138,63 @@ describe('Readonly wallet', () => {
         txHex: expect.any(String),
       });
 
-      const { txHex } = response.body;
+      const { txHex, dataToSignHash } = response.body;
+
+      response = await TestUtils.request
+        .get('/wallet/tx-proposal/get-wallet-inputs')
+        .query({ txHex })
+        .set({ 'x-wallet-id': walletId });
+      expect(response.status).toBe(200);
+
+      const signatures = [];
+      const config = settings.getConfig();
+
+      const { inputs } = response.body;
+
+      for (const input of inputs) {
+        const xprivRoot = walletUtils.getXPrivKeyFromSeed(words, { networkName: config.network });
+        const xpriv = xprivRoot.deriveNonCompliantChild(input.addressPath);
+        const signature = transactionUtils.getSignature(Buffer.from(dataToSignHash, 'hex'), xpriv.privateKey);
+        signatures.push(signature);
+      }
+
+      // Generate input data
+      const inputDatas = [];
+      for (let i = 0; i < inputs.length; i++) {
+        response = await TestUtils.request
+          .post('/wallet/tx-proposal/input-data')
+          .send({
+            index: inputs[i].addressIndex,
+            signature: signatures[i].toString('hex'),
+          })
+          .set({ 'x-wallet-id': walletId });
+        expect(response.status).toBe(200);
+
+        inputDatas.push({ index: i, data: response.body.inputData });
+      }
+
       // Add signature to transaction hex
       response = await TestUtils.request
         .post('/wallet/tx-proposal/add-signatures')
         .send({
           txHex,
-          signatures: [{ index: 0, data: 'c0ffecafe0' }],
+          signatures: inputDatas,
         })
         .set({ 'x-wallet-id': walletId });
       expect(response.status).toBe(200);
-      expect(response.body).toMatchObject({
-        success: true,
-        txHex: expect.any(String),
-      });
 
-      const tx = helpersUtils.createTxFromHex(response.body.txHex, new Network('privatenet'));
-      // Expect that the signature was added to the transaction
-      expect(tx.inputs[0].data.toString('hex')).toEqual('c0ffecafe0');
+      const finalTxHex = response.body.txHex;
+
+      // Push tx
+      response = await TestUtils.request
+        .post('/push-tx')
+        .send({
+          txHex: finalTxHex,
+        })
+        .set({ 'x-wallet-id': walletId });
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(response.body.tx.hash).toBeDefined();
     } finally {
       // Cleanup
       await TestUtils.stopWallet(walletId);

@@ -20,6 +20,20 @@ module.exports = {
   // above. Use it only if you want to use your own Atomic Swap Service, e.g. 'https://my-atomic-swap-service.domain/'
   atomicSwapService: null,
 
+  // HSM Integration
+  // These are optional. If all are not present, HSM-related requests will be rejected.
+  hsmHost: null,
+  hsmUsername: null,
+  hsmPassword: null,
+
+  // Only change the URL if you want to use the Sandbox API under 'https://sandbox-api.fireblocks.io'
+  fireblocksUrl: 'https://api.fireblocks.io',
+  fireblocksApiKey: null,
+  // This should be a string containing the secret (with line breaks)
+  fireblocksApiSecret: null,
+  // This supercedes the fireblocksApiKey if both are set
+  fireblocksApiSecretFile: null,
+
   // ApiKey to use with Tx Mining Service
   // This is optional. You should set it only if you have an api-key.
   txMiningApiKey: null,
@@ -86,4 +100,10 @@ module.exports = {
   // a `file` property which is the filename of the plugin on the plugin directory
   // Example: plugin_config: { custom: { name: 'custom', file: 'custom.js' } },
   plugin_config: {},
+
+  // Configure whether a healthcheck 'warn' status received from a component
+  // should make the service be considered unhealthy.
+  // You should consider what components you are enabling in the /health endpoint when setting this.
+  // Check the /health endpoint documentation for more info.
+  considerHealthcheckWarnAsUnhealthy: true,
 };

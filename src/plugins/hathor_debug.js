@@ -9,7 +9,7 @@ let debugLong;
 /* istanbul ignore next */
 async function checkDeps() {
   const requiredDeps = {
-    yargs: '^16.2.0',
+    yargs: '^17.7.2',
   };
   await Promise.all(Object.keys(requiredDeps).map(async d => {
     try {
@@ -33,20 +33,24 @@ export const getSettings = () => {
   return { debugLong };
 };
 
+function debugLog(data) {
+  console.log(`plugin[debug]: ${data}`);
+}
+
 export function eventHandler(data) {
   const message = JSON.stringify(data);
   if (message.length < 1000) {
-    console.log(message);
+    debugLog(message);
     return;
   }
   switch (debugLong) {
     case 'off':
       break;
     case 'all':
-      console.log(message);
+      debugLog(message);
       break;
     default:
-      console.log(JSON.stringify({
+      debugLog(JSON.stringify({
         type: data.type,
         walletId: data.walletId,
       }));

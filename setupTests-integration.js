@@ -1,11 +1,11 @@
 /* eslint-disable global-require */
-import { parse } from 'path';
 import { loggers, LoggerUtil } from './__tests__/integration/utils/logger.util';
 import { WalletBenchmarkUtil } from './__tests__/integration/utils/benchmark/wallet-benchmark.util';
 import { TxBenchmarkUtil } from './__tests__/integration/utils/benchmark/tx-benchmark.util';
 import {
   precalculationHelpers, WalletPrecalculationHelper,
 } from './scripts/helpers/wallet-precalculation.helper';
+import { TestUtils } from './__tests__/integration/utils/test-utils-integration';
 
 expect.extend({
   toBeInArray(received, expected) {
@@ -24,26 +24,13 @@ expect.extend({
   }
 });
 
-/**
- * Gets the name of the test being executed from a Jasmine's global variable.
- * @returns {string} Test name
- */
-function getTestNameFromGlobalJasmineInstance() {
-  // eslint-disable-next-line no-undef
-  const { testPath } = jasmine;
-  const testFileName = parse(testPath).name;
-  return testFileName.indexOf('.') > -1
-    ? testFileName.split('.')[0]
-    : testFileName;
-}
-
 // Mock config file
 jest.mock(
-  './src/config',
+  './src/settings',
   () => {
-    let config = require('./__tests__/integration/configuration/config-fixture');
-    if (config.default) config = config.default;
-    return config;
+    let settings = require('./__tests__/integration/configuration/settings-fixture');
+    if (settings.default) settings = settings.default;
+    return settings;
   },
   { virtual: true },
 );
@@ -61,8 +48,8 @@ jest.mock(
 
 // This function will run before each test file is executed
 beforeAll(async () => {
-  // Initializing the Transaction Logger with the test name
-  const testName = getTestNameFromGlobalJasmineInstance();
+  // Initializing the Transaction Logger with the test name obtained by our jest-circus Custom Env
+  const { testName } = global;
   const testLogger = new LoggerUtil(testName);
   testLogger.init({ filePrettyPrint: true });
   loggers.test = testLogger;
@@ -86,6 +73,23 @@ beforeAll(async () => {
   // Loading pre-calculated wallets
   precalculationHelpers.test = new WalletPrecalculationHelper('./tmp/wallets.json');
   await precalculationHelpers.test.initWithWalletsFile();
+
+  await TestUtils.startServer();
+
+  // Await first block to be mined to release genesis reward lock
+  try {
+    await TestUtils.waitNewBlock();
+  } catch (err) {
+    // When running jest with jasmine there's a bug (or behavior)
+    // that any error thrown inside beforeAll methods don't stop the tests
+    // https://github.com/jestjs/jest/issues/2713
+    // The solution for that is to capture the error and call process.exit
+    // https://github.com/jestjs/jest/issues/2713#issuecomment-319822476
+    // The downside of that is that we don't get logs, however is the only
+    // way for now. We should stop using jasmine soon (and change for jest-circus)
+    // when we do some package upgrades
+    process.exit(1);
+  }
 });
 
 afterAll(async () => {
@@ -99,4 +103,6 @@ afterAll(async () => {
 
   // Storing data about used precalculated wallets for the next test suites
   await precalculationHelpers.test.storeDbIntoWalletsFile();
+
+  TestUtils.stopServer();
 });

@@ -31,7 +31,7 @@ describe('create token', () => {
   });
 
   // Testing failures first, that do not cause side-effects on the blockchain
-  it('should reject missing name parameter', async done => {
+  it('should reject missing name parameter', async () => {
     const response = await TestUtils.request
       .post('/wallet/create-token')
       .send({
@@ -42,10 +42,9 @@ describe('create token', () => {
 
     expect(response.status).toBe(400);
     expect(response.body.success).toBe(false);
-    done();
   });
 
-  it('should reject missing symbol parameter', async done => {
+  it('should reject missing symbol parameter', async () => {
     const response = await TestUtils.request
       .post('/wallet/create-token')
       .send({
@@ -56,10 +55,9 @@ describe('create token', () => {
 
     expect(response.status).toBe(400);
     expect(response.body.success).toBe(false);
-    done();
   });
 
-  it('should reject a name with more than 30 characters', async done => {
+  it('should reject a name with more than 30 characters', async () => {
     const response = await TestUtils.request
       .post('/wallet/create-token')
       .send({
@@ -71,11 +69,10 @@ describe('create token', () => {
 
     expect(response.body.success).toBe(false);
     expect(response.body.error).toContain('maximum size');
-    done();
   });
 
   // The result is an error with the message "maximum size", but consumes the funds. Must be fixed.
-  it('should reject a symbol with more than 5 characters', async done => {
+  it('should reject a symbol with more than 5 characters', async () => {
     const response = await TestUtils.request
       .post('/wallet/create-token')
       .send({
@@ -87,10 +84,9 @@ describe('create token', () => {
 
     expect(response.body.success).toBe(false);
     expect(response.body.error).toContain('maximum size');
-    done();
   });
 
-  it('should reject an invalid destination address', async done => {
+  it('should reject an invalid destination address', async () => {
     const response = await TestUtils.request
       .post('/wallet/create-token')
       .send({
@@ -104,10 +100,9 @@ describe('create token', () => {
     expect(response.status).toBe(200);
     expect(response.body.success).toBe(false);
     expect(response.body.error).toContain('base58');
-    done();
   });
 
-  it('should reject an invalid change address', async done => {
+  it('should reject an invalid change address', async () => {
     const response = await TestUtils.request
       .post('/wallet/create-token')
       .send({
@@ -122,10 +117,9 @@ describe('create token', () => {
     expect(response.status).toBe(200);
     expect(response.body.success).toBe(false);
     expect(response.body.error).toContain('Change address is not from this wallet');
-    done();
   });
 
-  it('should reject creating token for change address not in the wallet', async done => {
+  it('should reject creating token for change address not in the wallet', async () => {
     const response = await TestUtils.request
       .post('/wallet/create-token')
       .send({
@@ -140,12 +134,11 @@ describe('create token', () => {
     expect(response.status).toBe(200);
     expect(response.body.success).toBe(false);
     expect(response.text).toContain('wallet');
-    done();
   });
 
   // insufficient funds
 
-  it('should reject for insufficient funds', async done => {
+  it('should reject for insufficient funds', async () => {
     const response = await TestUtils.request
       .post('/wallet/create-token')
       .send({
@@ -158,10 +151,9 @@ describe('create token', () => {
     expect(response.status).toBe(200);
     expect(response.body.success).toBe(false);
     expect(response.body.hash).toBeUndefined();
-    done();
   });
 
-  it('should not create a token with the reserved HTR symbol', async done => {
+  it('should not create a token with the reserved HTR symbol', async () => {
     const response = await TestUtils.request
       .post('/wallet/create-token')
       .send({
@@ -175,10 +167,9 @@ describe('create token', () => {
     expect(response.body.success).toBe(false);
     expect(response.body.hash).toBeUndefined();
     expect(response.body.error).toContain('Invalid token name');
-    done();
   });
 
-  it('should create a token with only required parameters', async done => {
+  it('should create a token with only required parameters', async () => {
     const response = await TestUtils.request
       .post('/wallet/create-token')
       .send({
@@ -197,16 +188,15 @@ describe('create token', () => {
     expect(response.body.success).toBe(true);
     expect(response.body.configurationString).toBe(configStringResponse.configurationString);
 
-    await TestUtils.pauseForWsUpdate();
+    await TestUtils.waitForTxReceived(wallet1.walletId, response.body.hash);
 
     const htrBalance = await wallet1.getBalance();
     const tkaBalance = await wallet1.getBalance(response.body.hash);
     expect(htrBalance.available).toBe(29); // The initial 30 minus 1
     expect(tkaBalance.available).toBe(100); // The newly minted TKA tokens
-    done();
   });
 
-  it('should send the created tokens to the correct address', async done => {
+  it('should send the created tokens to the correct address', async () => {
     const amountTokens = getRandomInt(100, 200);
     const response = await TestUtils.request
       .post('/wallet/create-token')
@@ -221,14 +211,13 @@ describe('create token', () => {
     const transaction = response.body;
     expect(transaction.success).toBe(true);
 
-    await TestUtils.pauseForWsUpdate();
+    await TestUtils.waitForTxReceived(wallet1.walletId, response.body.hash);
 
     const addr9 = await wallet1.getAddressInfo(9, transaction.hash);
     expect(addr9.total_amount_received).toBe(amountTokens);
-    done();
   });
 
-  it('should send the change to the correct address', async done => {
+  it('should send the change to the correct address', async () => {
     const response = await TestUtils.request
       .post('/wallet/create-token')
       .send({
@@ -246,14 +235,13 @@ describe('create token', () => {
     const htrOutputIndex = transaction.outputs.findIndex(o => o.token_data === 0);
     const htrChange = transaction.outputs[htrOutputIndex].value;
 
-    await TestUtils.pauseForWsUpdate();
+    await TestUtils.waitForTxReceived(wallet2.walletId, response.body.hash);
 
     const addr5 = await wallet2.getAddressInfo(5);
     expect(addr5.total_amount_received).toBe(htrChange);
-    done();
   });
 
-  it('should create a token with all available inputs', async done => {
+  it('should create a token with all available inputs', async () => {
     const response = await TestUtils.request
       .post('/wallet/create-token')
       .send({
@@ -272,13 +260,12 @@ describe('create token', () => {
     const htrOutputIndex = transaction.outputs.findIndex(o => o.token_data === 0);
     const htrChange = transaction.outputs[htrOutputIndex].value;
 
-    await TestUtils.pauseForWsUpdate();
+    await TestUtils.waitForTxReceived(wallet2.walletId, response.body.hash);
 
     const addr4 = await wallet2.getAddressInfo(4);
     expect(addr4.total_amount_received).toBe(htrChange);
     const addr4C = await wallet2.getAddressInfo(4, transaction.hash);
     expect(addr4C.total_amount_available).toBe(200);
-    done();
   });
 
   it('should create token with only mint authority', async () => {
@@ -296,6 +283,8 @@ describe('create token', () => {
     expect(response.body.success).toBe(true);
     const tx = response.body;
 
+    await TestUtils.waitForTxReceived(wallet1.walletId, response.body.hash);
+
     expect(tx.hash).toBeDefined();
 
     // Validating authority tokens
@@ -307,9 +296,6 @@ describe('create token', () => {
   });
 
   it('should create token with only melt authority', async () => {
-    // Since no pause was necessary on the last test, we will add one here to improve stability
-    await TestUtils.pauseForWsUpdate();
-
     const response = await TestUtils.request
       .post('/wallet/create-token')
       .send({
@@ -326,6 +312,8 @@ describe('create token', () => {
 
     expect(tx.hash).toBeDefined();
 
+    await TestUtils.waitForTxReceived(wallet1.walletId, response.body.hash);
+
     // Validating authority tokens
     const authorityOutputs = tx.outputs.filter(
       o => transactionUtils.isAuthorityOutput({ token_data: o.tokenData })
@@ -335,7 +323,6 @@ describe('create token', () => {
   });
 
   it('should create token with mint and melt authorities', async () => {
-    await TestUtils.pauseForWsUpdate();
     const response = await TestUtils.request
       .post('/wallet/create-token')
       .send({
@@ -352,6 +339,8 @@ describe('create token', () => {
 
     expect(tx.hash).toBeDefined();
 
+    await TestUtils.waitForTxReceived(wallet1.walletId, response.body.hash);
+
     // Validating authority tokens
     const authorityOutputs = tx.outputs.filter(
       o => transactionUtils.isAuthorityOutput({ token_data: o.tokenData })
@@ -361,9 +350,7 @@ describe('create token', () => {
     expect(authorityOutputs.find(o => o.value === constants.TOKEN_MELT_MASK)).toBeTruthy();
   });
 
-  it('should create the token and send authority outputs to the correct address', async done => {
-    // Since no pause was necessary on the last test, we will add one here to improve stability
-    await TestUtils.pauseForWsUpdate();
+  it('should create the token and send authority outputs to the correct address', async () => {
     // By default, will mint tokens into the next unused address
     const address0 = await wallet1.getAddressAt(0);
     const address1 = await wallet1.getAddressAt(1);
@@ -383,6 +370,8 @@ describe('create token', () => {
     const transaction = response.body;
     expect(transaction.success).toBe(true);
 
+    await TestUtils.waitForTxReceived(wallet1.walletId, response.body.hash);
+
     // Validating a new mint authority was created
     const authorityOutputs = transaction.outputs.filter(
       o => transactionUtils.isAuthorityOutput({ token_data: o.tokenData })
@@ -401,13 +390,9 @@ describe('create token', () => {
     const meltP2pkh = scriptsUtils.parseP2PKH(Buffer.from(meltOutput[0].script.data), network);
     // Validate that the melt output was sent to the correct address
     expect(meltP2pkh.address.base58).toEqual(address1);
-
-    done();
   });
 
-  it('Create token using external mint/melt address', async done => {
-    // Since no pause was necessary on the last test, we will add one here to improve stability
-    await TestUtils.pauseForWsUpdate();
+  it('Create token using external mint/melt address', async () => {
     const address2idx0 = await wallet2.getAddressAt(0);
     const address2idx1 = await wallet2.getAddressAt(1);
 
@@ -457,6 +442,9 @@ describe('create token', () => {
 
     expect(response3.body.success).toBe(true);
 
+    await TestUtils.waitForTxReceived(wallet1.walletId, response3.body.hash);
+    await TestUtils.waitForTxReceived(wallet2.walletId, response3.body.hash);
+
     const transaction = response3.body;
     expect(transaction.success).toBe(true);
 
@@ -478,7 +466,48 @@ describe('create token', () => {
     const meltP2pkh = scriptsUtils.parseP2PKH(Buffer.from(meltOutput[0].script.data), network);
     // Validate that the melt output was sent to the correct address
     expect(meltP2pkh.address.base58).toEqual(address2idx1);
+  });
 
-    done();
+  it('create token with data outputs', async () => {
+    const htrBalance = await wallet2.getBalance(constants.HATHOR_TOKEN_CONFIG.uid);
+    const response = await TestUtils.request
+      .post('/wallet/create-token')
+      .send({
+        name: 'Token C',
+        symbol: 'TKC',
+        amount: 100,
+        data: ['test1', 'test2']
+      })
+      .set({ 'x-wallet-id': wallet2.walletId });
+
+    const transaction = response.body;
+    expect(transaction.success).toBe(true);
+
+    await TestUtils.waitForTxReceived(wallet2.walletId, response.body.hash);
+
+    // Make sure we spent 0.03 HTR
+    // 0.01 for the mint
+    // 0.02 for the two data script outputs
+    const newHtrBalance = await wallet2.getBalance(constants.HATHOR_TOKEN_CONFIG.uid);
+    expect(newHtrBalance.available).toBe(htrBalance.available - 3);
+
+    // Make sure the token was minted
+    const tkBalance = await wallet2.getBalance(transaction.hash);
+    expect(tkBalance.available).toBe(100); // The newly minted tokens
+
+    // Make sure the last 2 outputs are the data outputs
+    const lastOutput = transaction.outputs[transaction.outputs.length - 1];
+    expect(lastOutput.value).toBe(1);
+    expect(lastOutput.tokenData).toBe(0);
+    const lastOutputScript = scriptsUtils.parseScriptData(Buffer.from(lastOutput.script.data));
+    expect(lastOutputScript.data).toBe('test2');
+
+    const outputBeforeLast = transaction.outputs[transaction.outputs.length - 2];
+    expect(outputBeforeLast.value).toBe(1);
+    expect(outputBeforeLast.tokenData).toBe(0);
+    const outputBeforeLastScript = scriptsUtils.parseScriptData(
+      Buffer.from(outputBeforeLast.script.data)
+    );
+    expect(outputBeforeLastScript.data).toBe('test1');
   });
 });

@@ -1,14 +1,17 @@
 import supertest from 'supertest';
-// eslint-disable-next-line import/no-extraneous-dependencies
 import axios from 'axios';
+import { get } from 'lodash';
 import winston from 'winston';
 import MockAdapter from 'axios-mock-adapter';
 import { Server } from 'mock-socket';
 import { HathorWallet } from '@hathor/wallet-lib';
 import createApp from '../src/app';
-import config from '../src/config';
+import settings from '../src/settings';
 import httpFixtures from './__fixtures__/http-fixtures';
+import fireblocksFixtures from './__fixtures__/fireblocks';
 import wsFixtures from './__fixtures__/ws-fixtures';
+
+const config = settings.getConfig();
 
 const WALLET_ID = 'stub_wallet';
 const SEED_KEY = 'stub_seed';
@@ -37,8 +40,8 @@ const MULTISIG_DATA = {
   }
 };
 
-const app = createApp();
-const request = supertest(app);
+let request; let
+  server;
 
 const httpMock = new MockAdapter(axios);
 
@@ -196,7 +199,8 @@ class TestUtils {
 
   static startMocks() {
     // http mocks
-    httpMock.onGet('/version').reply(200, httpFixtures['/v1a/version']);
+    httpMock.onGet('http://fakehost:8083/v1a/version').reply(200, httpFixtures['http://fakehost:8083/v1a/version']);
+    httpMock.onGet('http://fakehost:8083/v1a/health').reply(200, httpFixtures['http://fakehost:8083/v1a/health']);
     httpMock
       .onGet('/thin_wallet/address_history')
       .reply(200, httpFixtures['/thin_wallet/address_history']);
@@ -204,8 +208,24 @@ class TestUtils {
     httpMock.onPost('submit-job').reply(200, httpFixtures['submit-job']);
     httpMock.onGet('job-status').reply(200, httpFixtures['job-status']);
     httpMock.onGet('/thin_wallet/token').reply(200, httpFixtures['/thin_wallet/token']);
-    httpMock.onGet('/transaction').reply(200, httpFixtures['/transaction']);
+    httpMock.onGet('/transaction').reply(conf => {
+      // Depending on the ID parameter, we must return a nano contract transaction
+      if (get(conf, 'params.id') === '5c02adea056d7b43e83171a0e2d226d564c791d583b32e9a404ef53a2e1b363a') {
+        return [200, httpFixtures['/transaction?id=5c02adea056d7b43e83171a0e2d226d564c791d583b32e9a404ef53a2e1b363a']];
+      }
+
+      return [200, httpFixtures['/transaction']];
+    });
     httpMock.onGet('/getmininginfo').reply(200, httpFixtures['/getmininginfo']);
+    httpMock.onGet('http://fake.txmining:8084/health').reply(200, httpFixtures['http://fake.txmining:8084/health']);
+    httpMock.onGet('/nano_contract/state').reply(200, httpFixtures['/nano_contract/state']);
+    httpMock.onGet('/nano_contract/history').reply(200, httpFixtures['/nano_contract/history']);
+    httpMock.onGet('/nano_contract/blueprint').reply(200, httpFixtures['/nano_contract/blueprint']);
+
+    // Fireblocks mock
+    httpMock.onGet(/http:\/\/fake-fireblocks-url\/v1\/transactions\/external_tx_id\/*/).reply(fireblocksFixtures.transaction_status);
+    httpMock.onGet(/http:\/\/fake-fireblocks-url\/v1\/vault\/public_key_info*/).reply(200, fireblocksFixtures.public_key_info);
+    httpMock.onPost('http://fake-fireblocks-url/v1/transactions').reply(200);
 
     // websocket mocks
     wsMock.on('connection', socket => {
@@ -228,8 +248,30 @@ class TestUtils {
     });
   }
 
+  static startServer() {
+    return new Promise((resolve, reject) => {
+      const app = createApp(config);
+      server = app.listen(8088, err => {
+        if (err) {
+          return reject(err);
+        }
+
+        // Ensures the supertest agent will be bound to the correct express port
+        request = supertest.agent(server);
+        return resolve();
+      });
+    });
+  }
+
+  static resetRequest() {
+    // This can be used to reset the supertest agent and avoid interferences between tests,
+    // since everything is a singleton in this file
+    request = supertest.agent(server);
+  }
+
   static stopMocks() {
     httpMock.reset();
+    server.close();
     return new Promise(resolve => {
       wsMock.stop(resolve);
     });

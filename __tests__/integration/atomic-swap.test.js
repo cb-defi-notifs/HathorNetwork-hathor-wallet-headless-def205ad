@@ -3,7 +3,7 @@ import { TestUtils } from './utils/test-utils-integration';
 import { WalletHelper } from './utils/wallet-helper';
 import { singleMultisigWalletData } from '../../scripts/helpers/wallet-precalculation.helper';
 import { loggers } from './utils/logger.util';
-import { delay } from './utils/core.util';
+import settings from '../../src/settings';
 
 describe('send tx (HTR)', () => {
   let wallet1;
@@ -20,8 +20,10 @@ describe('send tx (HTR)', () => {
   } = singleMultisigWalletData;
 
   beforeAll(async () => {
-    global.config.seeds = { multisig: multisigWords[0] };
-    global.config.multisig = { multisig: multisigWalletConfig };
+    const config = settings.getConfig();
+    config.seeds = { multisig: multisigWords[0] };
+    config.multisig = { multisig: multisigWalletConfig };
+    settings._setConfig(config);
     try {
       wallet1 = WalletHelper.getPrecalculatedWallet('atomic-swap-1');
       wallet2 = WalletHelper.getPrecalculatedWallet('atomic-swap-2');
@@ -43,18 +45,16 @@ describe('send tx (HTR)', () => {
       tokenTx2 = await wallet2.createToken({ amount: 1000, name: 'Token wallet2', symbol: 'TKW2' });
 
       fundsTx = await wallet1.injectFunds(10, 0);
-      await delay(500);
-
-      // Awaiting for updated balances to be received by the websocket
-      await TestUtils.pauseForWsUpdate();
     } catch (err) {
       TestUtils.logError(err.stack);
     }
   });
 
   afterAll(async () => {
-    global.config.seeds = {};
-    global.config.multisig = {};
+    const config = settings.getConfig();
+    config.seeds = {};
+    config.multisig = {};
+    settings._setConfig(config);
     await wallet1.stop();
     await wallet2.stop();
     await walletMultisig.stop();
@@ -159,7 +159,6 @@ describe('send tx (HTR)', () => {
       })
       .set({ 'x-wallet-id': wallet1.walletId });
     loggers.test.insertLineToLog('atomic-swap[utxos]: proposal', { body: response.body });
-    await TestUtils.pauseForWsUpdate();
     expect(response.body).toEqual({
       success: true,
       data: expect.any(String),
@@ -308,7 +307,8 @@ describe('send tx (HTR)', () => {
     loggers.test.insertLineToLog('atomic-swap[HTR P2PKH]: push', { body: response.body });
     expect(response.body.success).toBe(true);
 
-    await TestUtils.pauseForWsUpdate();
+    await TestUtils.waitForTxReceived(wallet1.walletId, response.body.hash);
+    await TestUtils.waitForTxReceived(wallet2.walletId, response.body.hash);
 
     // Get the balance state after the swap
     const finalBalance1 = await wallet1.getBalance();
@@ -388,7 +388,8 @@ describe('send tx (HTR)', () => {
     loggers.test.insertLineToLog('atomic-swap[1TK P2PKH]: push', { body: response.body });
     expect(response.body.success).toBe(true);
 
-    await TestUtils.pauseForWsUpdate();
+    await TestUtils.waitForTxReceived(wallet1.walletId, response.body.hash);
+    await TestUtils.waitForTxReceived(wallet2.walletId, response.body.hash);
 
     // Get the balance state after the swap
     const finalBalance1 = await wallet1.getBalance(tokenTx1.hash);
@@ -453,10 +454,10 @@ describe('send tx (HTR)', () => {
         ]),
       }),
     });
-    decodeResponse.body.tx.inputs.map(input => expect(input).toEqual({
+    decodeResponse.body.tx.inputs.map(input => expect(input).toEqual(expect.objectContaining({
       txId: expect.any(String),
       index: expect.any(Number),
-    }));
+    })));
 
     expect(response.body.isComplete).toBe(false);
 
@@ -507,10 +508,10 @@ describe('send tx (HTR)', () => {
         ]),
       },
     });
-    decodeResponse.body.tx.inputs.map(input => expect(input).toEqual({
+    decodeResponse.body.tx.inputs.map(input => expect(input).toEqual(expect.objectContaining({
       txId: expect.any(String),
       index: expect.any(Number),
-    }));
+    })));
 
     // wallet1: sign data
     response = await TestUtils.request
@@ -544,7 +545,8 @@ describe('send tx (HTR)', () => {
     loggers.test.insertLineToLog('atomic-swap[2TK P2PKH]: push', { body: response.body });
     expect(response.body.success).toBe(true);
 
-    await TestUtils.pauseForWsUpdate();
+    await TestUtils.waitForTxReceived(wallet1.walletId, response.body.hash);
+    await TestUtils.waitForTxReceived(wallet2.walletId, response.body.hash);
 
     // Get the balance state after the swap
     // balances for wallet1 (HTR, token 1 and token 2)
@@ -764,7 +766,8 @@ describe('send tx (HTR)', () => {
     loggers.test.insertLineToLog('atomic-swap[P2SH]: push', { body: response.body });
     expect(response.body.success).toBe(true);
 
-    await TestUtils.pauseForWsUpdate();
+    await TestUtils.waitForTxReceived(wallet1.walletId, response.body.hash);
+    await TestUtils.waitForTxReceived(wallet2.walletId, response.body.hash);
 
     // Get the balance state after the swap
     // balances for wallet1 (HTR, token 1 and token 2)
@@ -801,7 +804,6 @@ describe('send tx (HTR)', () => {
 
   it('should send the change to the correct address', async () => {
     const tx = await wallet1.injectFunds(3, 10);
-    await TestUtils.pauseForWsUpdate();
     const destAddr = await wallet1.getAddressAt(10);
     const changeAddr = await wallet1.getAddressAt(11);
     const recvAddr = await wallet1.getAddressAt(12);

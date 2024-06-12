@@ -58,6 +58,16 @@ const config = {
   txMiningUrl: getParam('tx_mining_url', null),
   txMiningApiKey: getParam('tx_mining_api_key', null),
 
+  // HSM Integration
+  hsmHost: getParam('hsm_host', null),
+  hsmUsername: getParam('hsm_username', null),
+  hsmPassword: getParam('hsm_password', null),
+
+  fireblocksUrl: getParam('fireblocks_url', 'https://api.fireblocks.io'),
+  fireblocksApiKey: getParam('fireblocks_api_key'),
+  fireblocksApiSecret: getParam('fireblocks_api_secret'),
+  fireblocksApiSecretFile: getParam('fireblocks_api_secret_file'),
+
   http_api_key: getParam('api_key'),
   httpLogFormat: getParam('http_log_format'),
 
@@ -78,6 +88,9 @@ const config = {
   // Plugin configuration
   enabled_plugins: getParam('enabled_plugins', '').split(' ').filter(x => x),
   plugin_config: {},
+
+  // Healthcheck configuration
+  considerHealthcheckWarnAsUnhealthy: getBooleanParam('consider_healthcheck_warn_as_unhealthy', 'true'),
 };
 
 const seeds = getParam('seeds', 'default').split(' ');
@@ -128,6 +141,13 @@ if (debugPath) {
     filename: debugPath,
     level: 'debug',
   };
+}
+
+const fireblocksApiSecret = getParam('fireblocks_api_secret');
+if (fireblocksApiSecret) {
+  const warnMessage = '[WARNING] fireblocks_api_secret is disabled for docker. Use fireblocks_api_secret_file instead.';
+  console.warn(warnMessage);
+  throw new Error(warnMessage);
 }
 
 module.exports = config;

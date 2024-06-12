@@ -1,34 +1,41 @@
-name: tests
+name: unit-tests
 on:
   push:
     branches:
       - master
-      - dev
+      - release-candidate
+      - release
     tags:
       - v*
   pull_request:
     branches:
-      - dev
       - master
+      - release-candidate
+      - release
 jobs:
   test:
     runs-on: "ubuntu-latest"
     timeout-minutes: 40 # default is 360
     strategy:
       matrix:
-        node-version: [14.x, 16.x]
+        node-version: [20.x]
     steps:
-      - uses: actions/checkout@v2
+      # https://github.com/actions/checkout/releases/tag/v2.7.0
+      - uses: actions/checkout@ee0669bd1cc54295c223e0bb666b733df41de1c5
       - name: Use Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v1
+        # https://github.com/actions/setup-node/releases/tag/v1.4.6
+        uses: actions/setup-node@f1f314fca9dfce2769ece7d933488f076716723e
         with:
           node-version: ${{ matrix.node-version }}
       - name: Install dependencies
         run: npm install
+      # We mock the config module when testing the settings module, so it needs to exist
+      - name: Create config module
+        run: cp ./config.js.template ./src/config.js
       - name: Test
         run: npm run test
       - name: Upload coverage
-        uses: codecov/codecov-action@v1
-        if: ${{ matrix.node-version }} == 14.x
-        with:
-          verbose: true
+        # https://github.com/codecov/codecov-action/releases/tag/v4.3.0
+        uses: codecov/codecov-action@84508663e988701840491b86de86b666e8a86bed
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}

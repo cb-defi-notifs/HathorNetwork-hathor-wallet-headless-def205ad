@@ -1,5 +1,7 @@
 import TestUtils from './test-utils';
 import { WALLET_CONSTANTS } from './integration/configuration/test-constants';
+import settings from '../src/settings';
+import { initializedWallets } from '../src/services/wallets.service';
 
 /*
  * Developer note:
@@ -76,7 +78,9 @@ describe('start api', () => {
   });
 
   it('should require x-first-address if confirmFirstAddress is true', async () => {
-    global.config.confirmFirstAddress = true;
+    const config = settings.getConfig();
+    config.confirmFirstAddress = true;
+    settings._setConfig(config);
 
     let response = await TestUtils.request
       .post('/start')
@@ -97,11 +101,14 @@ describe('start api', () => {
     expect(response.status).toBe(200);
     expect(response.body.available).toBeDefined();
 
-    global.config.confirmFirstAddress = null;
+    config.confirmFirstAddress = null;
+    settings._setConfig(config);
   });
 
   it('should start a MultiSig wallet if multisig is true', async () => {
-    global.config.multisig = TestUtils.multisigData;
+    const config = settings.getConfig();
+    config.multisig = TestUtils.multisigData;
+    settings._setConfig(config);
 
     const response1 = await TestUtils.request
       .post('/start')
@@ -118,11 +125,14 @@ describe('start api', () => {
     expect(response2.status).toBe(200);
     expect(response2.body.address).toBe(TestUtils.multisigAddresses[0]);
 
-    global.config.multisig = {};
+    config.multisig = {};
+    settings._setConfig(config);
   });
 
   it('should not start a incorrectly configured MultiSig if multisig is true', async () => {
-    global.config.multisig = {};
+    const config = settings.getConfig();
+    config.multisig = {};
+    settings._setConfig(config);
 
     const response1 = await TestUtils.request
       .post('/start')
@@ -130,8 +140,9 @@ describe('start api', () => {
     expect(response1.status).toBe(200);
     expect(response1.body.success).toBe(false);
 
-    global.config.multisig = TestUtils.multisigData;
-    global.config.multisig[TestUtils.seedKey].total = 6;
+    config.multisig = TestUtils.multisigData;
+    config.multisig[TestUtils.seedKey].total = 6;
+    settings._setConfig(config);
 
     const response2 = await TestUtils.request
       .post('/start')
@@ -139,8 +150,9 @@ describe('start api', () => {
     expect(response2.status).toBe(200);
     expect(response2.body.success).toBe(false);
 
-    global.config.multisig[TestUtils.seedKey].total = 5;
-    global.config.multisig[TestUtils.seedKey].numSignatures = 6;
+    config.multisig[TestUtils.seedKey].total = 5;
+    config.multisig[TestUtils.seedKey].numSignatures = 6;
+    settings._setConfig(config);
 
     const response3 = await TestUtils.request
       .post('/start')
@@ -148,6 +160,93 @@ describe('start api', () => {
     expect(response3.status).toBe(200);
     expect(response3.body.success).toBe(false);
 
-    global.config.multisig = {};
+    config.multisig = {};
+    settings._setConfig(config);
+  });
+  it('should not use gap-limit policy data unless strictly configured to gap-limit', async () => {
+    const walletHttpInput = {
+      'wallet-id': walletId,
+      seed: WALLET_CONSTANTS.genesis.words,
+      gapLimit: 7,
+    };
+
+    const response = await TestUtils.request
+      .post('/start')
+      .send(walletHttpInput);
+
+    expect(response.body).toHaveProperty('success', true);
+
+    // The gapLimit is ignored and the default configuration is used
+    const wallet = initializedWallets.get(walletId);
+    await expect(wallet.storage.getScanningPolicy()).resolves.toBe('gap-limit');
+    await expect(wallet.getGapLimit()).resolves.not.toBe(7);
+  });
+  it('should start a wallet with the configured gap-limit', async () => {
+    const walletHttpInput = {
+      'wallet-id': walletId,
+      seed: WALLET_CONSTANTS.genesis.words,
+      scanPolicy: 'gap-limit',
+      gapLimit: 7,
+    };
+
+    const response = await TestUtils.request
+      .post('/start')
+      .send(walletHttpInput);
+
+    expect(response.body).toHaveProperty('success', true);
+
+    // Check that the wallet actually used the given gap-limit
+    const wallet = initializedWallets.get(walletId);
+    await expect(wallet.storage.getScanningPolicy()).resolves.toBe('gap-limit');
+    await expect(wallet.getGapLimit()).resolves.toBe(7);
+  });
+  it('should start a wallet with index-limit', async () => {
+    const walletHttpInput = {
+      'wallet-id': walletId,
+      seed: WALLET_CONSTANTS.genesis.words,
+      scanPolicy: 'index-limit',
+    };
+
+    const response = await TestUtils.request
+      .post('/start')
+      .send(walletHttpInput);
+
+    expect(response.body).toHaveProperty('success', true);
+    await TestUtils.waitReady({ walletId });
+
+    // Check that the wallet actually used the given gap-limit
+    const wallet = initializedWallets.get(walletId);
+    await expect(wallet.storage.getScanningPolicy()).resolves.toBe('index-limit');
+    await expect(wallet.storage.getIndexLimit()).resolves.toMatchObject({
+      startIndex: 0,
+      endIndex: 0,
+    });
+    await expect(wallet.storage.store.addressCount()).resolves.toBe(1);
+  });
+  it('should start a wallet with index-limit and use the configuration', async () => {
+    const walletHttpInput = {
+      'wallet-id': walletId,
+      seed: WALLET_CONSTANTS.genesis.words,
+      scanPolicy: 'index-limit',
+      policyStartIndex: 5,
+      policyEndIndex: 10,
+    };
+
+    const response = await TestUtils.request
+      .post('/start')
+      .send(walletHttpInput);
+
+    expect(response.body).toHaveProperty('success', true);
+    await TestUtils.waitReady({ walletId });
+
+    // Check that the wallet actually used the given gap-limit
+    const wallet = initializedWallets.get(walletId);
+    await expect(wallet.storage.getScanningPolicy()).resolves.toBe('index-limit');
+    await expect(wallet.storage.getIndexLimit()).resolves.toMatchObject({
+      startIndex: 5,
+      endIndex: 10,
+    });
+    // We will load 6 addresses, from 5 to 10 (inclusive)
+    await expect(wallet.storage.store.addressCount()).resolves.toBe(6);
   });
 });

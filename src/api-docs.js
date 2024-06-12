@@ -1,4 +1,79 @@
-const apiDoc = {
+const { cloneDeep } = require('lodash');
+const settings = require('./settings');
+const packageJson = require('../package.json');
+
+const commonExamples = {
+  xWalletIdErrResponseExamples: {
+    'no-wallet-id': {
+      summary: 'No wallet id parameter',
+      value: { success: false, message: "Parameter 'wallet-id' is required." }
+    },
+    'invalid-wallet-id': {
+      summary: 'Wallet id parameter is invalid',
+      value: { success: false, message: 'Invalid wallet-id parameter.' }
+    },
+  },
+};
+
+const nanoContractsDataParameter = {
+  type: 'object',
+  description: 'Data of the method for the nano contract.',
+  properties: {
+    actions: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['type', 'token', 'amount'],
+        properties: {
+          type: {
+            type: 'string',
+            description: 'Type of action: \'deposit\' or \'withdrawal\'.'
+          },
+          token: {
+            type: 'string',
+            description: 'Token of the action.'
+          },
+          amount: {
+            type: 'integer',
+            description: 'Amount to deposit or withdrawal.'
+          },
+          address: {
+            type: 'string',
+            description: 'Required for withdrawal, and it\'s the address to send the token to. For deposit is optional and it\'s the address to get the utxo from.'
+          },
+          changeAddress: {
+            type: 'string',
+            description: 'Address to send the change amount. Only used for deposit and it\'s optional.'
+          },
+        }
+      },
+      description: 'List of actions for the initialize method.'
+    },
+    args: {
+      type: 'array',
+      items: {
+        oneOf: [
+          {
+            type: 'string',
+          },
+          {
+            type: 'integer',
+          },
+          {
+            type: 'number',
+          },
+          {
+            type: 'boolean',
+          },
+        ],
+      },
+      description: 'List of arguments for the method.'
+    },
+  }
+};
+
+// Default values for the API Docs
+const defaultApiDocs = {
   openapi: '3.0.0',
   servers: [
     { url: 'http://localhost:8000' }
@@ -6,26 +81,30 @@ const apiDoc = {
   info: {
     title: 'Headless Hathor Wallet API',
     description: 'This wallet is fully controlled through an HTTP API.',
-    version: '0.22.0-rc2',
+    version: packageJson.version,
+    license: {
+      name: 'MIT',
+      url: 'https://github.com/HathorNetwork/hathor-wallet-headless/blob/master/LICENSE'
+    },
   },
-  produces: ['application/json'],
   components: {
-    securitySchemes: {
-      ApiKeyAuth: {
-        type: 'apiKey',
+    parameters: {
+      XWalletIdParameter: {
+        name: 'x-wallet-id',
         in: 'header',
-        name: 'X-API-KEY',
+        description: 'Defines the key of the wallet on which the request will be executed.',
+        required: true,
+        schema: {
+          type: 'string',
+        },
       },
     },
   },
-  security: [
-    {
-      ApiKeyAuth: [],
-    }
-  ],
+  security: [],
   paths: {
     '/start': {
       post: {
+        operationId: 'startWallet',
         summary: 'Create and start a wallet and add to store.',
         requestBody: {
           description: 'Data to start the wallet',
@@ -38,7 +117,7 @@ const apiDoc = {
                 properties: {
                   'wallet-id': {
                     type: 'string',
-                    description: 'Define the key of the corresponding wallet it will be executed the request.'
+                    description: 'Defines the key of wallet that future requests will need to use as a reference.'
                   },
                   passphrase: {
                     type: 'string',
@@ -63,6 +142,25 @@ const apiDoc = {
                   multisigKey: {
                     type: 'string',
                     description: 'Key of the multisig wallet data in the config. This allow wallets to be started without a seedKey, e.g. with the seed on the parameters or from an xpubkey.',
+                  },
+                  scanPolicy: {
+                    type: 'string',
+                    enum: ['gap-limit', 'index-limit'],
+                    description: 'Address scanning policy to use.',
+                    default: 'gap-limit',
+                  },
+                  gapLimit: {
+                    type: 'number',
+                    description: 'Gap limit to use when scanning addresses. Only used when scanPolicy is set to \'gap-limit\'. If not given the configured default will apply.',
+                  },
+                  policyStartIndex: {
+                    type: 'number',
+                    description: 'Load addresses starting from this index. Only used when scanPolicy is set to \'index-limit\'.',
+                    default: 0,
+                  },
+                  policyEndIndex: {
+                    type: 'number',
+                    description: 'Stop loading addresses at this index. Only used when scanPolicy is set to \'index-limit\'. Defaults to policyStartIndex',
                   },
                 }
               },
@@ -112,8 +210,161 @@ const apiDoc = {
         },
       },
     },
+    '/hsm/start': {
+      post: {
+        operationId: 'hsmWalletStart',
+        summary: 'Create and start a read-only wallet through an HSM, then add it to store.',
+        requestBody: {
+          description: 'Data to start the wallet',
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['wallet-id', 'hsm-key'],
+                properties: {
+                  'wallet-id': {
+                    type: 'string',
+                    description: 'Define the key of the corresponding wallet it will be executed the request.'
+                  },
+                  'hsm-key': {
+                    type: 'string',
+                    description: 'Key name containing the BIP32 xPriv on the HSM device.'
+                  },
+                }
+              },
+              examples: {
+                data: {
+                  summary: 'Data to start the wallet',
+                  value: {
+                    'wallet-id': 'hardware-wallet-1',
+                    'hsm-key': 'hathor_wallet_1',
+                  }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          200: {
+            description: 'Start a wallet',
+            content: {
+              'application/json': {
+                examples: {
+                  success: {
+                    summary: 'Success',
+                    value: { success: true },
+                  },
+                  'no-wallet-id': {
+                    summary: 'No wallet id parameter',
+                    value: { success: false, message: "Parameter 'wallet-id' is required." }
+                  },
+                  'no-hsm-key': {
+                    summary: 'No HSM key parameter',
+                    value: { success: false, message: "Parameter 'hsm-key' is required." }
+                  },
+                  'hsm-key-invalid': {
+                    summary: 'HSM key informed is not valid',
+                    value: { success: false, message: `Informed 'hsm-key' is not a valid xPriv.` }
+                  },
+                  'start-failed': {
+                    summary: 'Wallet failed to start.',
+                    value: { success: false, message: 'Failed to start wallet with id X and key Y' }
+                  },
+                  'wallet-already-started': {
+                    summary: 'Wallet with same id was already started.',
+                    value: { success: false, message: 'Error starting wallet because this wallet-id is already in use. You must stop the wallet first.', errorCode: 'WALLET_ALREADY_STARTED' }
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    '/fireblocks/start': {
+      post: {
+        operationId: 'fireblocksWalletStart',
+        summary: 'Start a fireblocks client wallet on Hathor network.',
+        requestBody: {
+          description: 'Data to start the wallet',
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['wallet-id', 'xpub'],
+                properties: {
+                  'wallet-id': {
+                    type: 'string',
+                    description: 'Define the key of the corresponding wallet it will be executed the request.'
+                  },
+                  xpub: {
+                    type: 'string',
+                    description: 'Fireblocks xPub derived to the Fireblocks account path (m/44/280/0).'
+                  },
+                }
+              },
+              examples: {
+                data: {
+                  summary: 'Data to start the wallet',
+                  value: {
+                    'wallet-id': 'hardware-wallet-1',
+                    xpub: 'xpub...',
+                  }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          200: {
+            description: 'Start a wallet',
+            content: {
+              'application/json': {
+                examples: {
+                  success: {
+                    summary: 'Success',
+                    value: { success: true },
+                  },
+                  'no-wallet-id': {
+                    summary: 'No wallet id parameter',
+                    value: { success: false, message: "Parameter 'wallet-id' is required." }
+                  },
+                  'no-xpub': {
+                    summary: 'No xPub parameter',
+                    value: { success: false, message: "Parameter 'xpub' is required." }
+                  },
+                  'start-failed': {
+                    summary: 'Wallet failed to start.',
+                    value: { success: false, message: 'Failed to start wallet with id X' }
+                  },
+                  'wallet-already-started': {
+                    summary: 'Wallet with same id was already started.',
+                    value: { success: false, message: 'Failed to start wallet with id X', errorCode: 'WALLET_ALREADY_STARTED' }
+                  },
+                  'fireblocks-not-configured': {
+                    summary: 'Missing Fireblocks client config.',
+                    value: { success: false, message: 'Fireblocks client is not configured.' }
+                  },
+                  'fireblocks-invalid-xpub': {
+                    summary: 'Fireblocks first address and local xPub first address do not match.',
+                    value: { success: false, message: 'Fireblocks api generated a public key different from local public key.' }
+                  },
+                  'fireblocks-api-error': {
+                    summary: 'Client raised an error when trying to connect to Fireblocks API.',
+                    value: { success: false, message: 'Could not validate Fireblocks client config, received error: X' }
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
     '/multisig-pubkey': {
       post: {
+        operationId: 'getMultisigPubkey',
         summary: 'Get MultiSig xpub for a seed.',
         requestBody: {
           description: '',
@@ -169,17 +420,10 @@ const apiDoc = {
     },
     '/wallet/status': {
       get: {
+        operationId: 'getWalletStatus',
         summary: 'Return the wallet status',
         parameters: [
-          {
-            name: 'x-wallet-id',
-            in: 'header',
-            description: 'Define the key of the corresponding wallet it will be executed the request.',
-            required: true,
-            schema: {
-              type: 'string',
-            },
-          },
+          { $ref: '#/components/parameters/XWalletIdParameter' },
         ],
         responses: {
           200: {
@@ -207,14 +451,7 @@ const apiDoc = {
                     summary: 'Wallet is not ready yet',
                     value: { success: false, message: 'Wallet is not ready.', state: 1 }
                   },
-                  'no-wallet-id': {
-                    summary: 'No wallet id parameter',
-                    value: { success: false, message: "Parameter 'wallet-id' is required." }
-                  },
-                  'invalid-wallet-id': {
-                    summary: 'Wallet id parameter is invalid',
-                    value: { success: false, message: 'Invalid wallet-id parameter.' }
-                  },
+                  ...commonExamples.xWalletIdErrResponseExamples,
                 },
               },
             },
@@ -224,17 +461,10 @@ const apiDoc = {
     },
     '/wallet/balance': {
       get: {
+        operationId: 'getWalletBalance',
         summary: 'Return the balance of HTR',
         parameters: [
-          {
-            name: 'x-wallet-id',
-            in: 'header',
-            description: 'Define the key of the corresponding wallet it will be executed the request.',
-            required: true,
-            schema: {
-              type: 'string',
-            },
-          },
+          { $ref: '#/components/parameters/XWalletIdParameter' },
           {
             name: 'token',
             in: 'query',
@@ -259,14 +489,7 @@ const apiDoc = {
                     summary: 'Wallet is not ready yet',
                     value: { success: false, message: 'Wallet is not ready.', state: 1 }
                   },
-                  'no-wallet-id': {
-                    summary: 'No wallet id parameter',
-                    value: { success: false, message: "Parameter 'wallet-id' is required." }
-                  },
-                  'invalid-wallet-id': {
-                    summary: 'Wallet id parameter is invalid',
-                    value: { success: false, message: 'Invalid wallet-id parameter.' }
-                  },
+                  ...commonExamples.xWalletIdErrResponseExamples,
                 },
               },
             },
@@ -276,17 +499,10 @@ const apiDoc = {
     },
     '/wallet/address': {
       get: {
+        operationId: 'getCurrentAddress',
         summary: 'Return the current address',
         parameters: [
-          {
-            name: 'x-wallet-id',
-            in: 'header',
-            description: 'Define the key of the corresponding wallet it will be executed the request.',
-            required: true,
-            schema: {
-              type: 'string',
-            },
-          },
+          { $ref: '#/components/parameters/XWalletIdParameter' },
           {
             name: 'mark_as_used',
             in: 'query',
@@ -320,14 +536,7 @@ const apiDoc = {
                     summary: 'Wallet is not ready yet',
                     value: { success: false, message: 'Wallet is not ready.', state: 1 }
                   },
-                  'no-wallet-id': {
-                    summary: 'No wallet id parameter',
-                    value: { success: false, message: "Parameter 'wallet-id' is required." }
-                  },
-                  'invalid-wallet-id': {
-                    summary: 'Wallet id parameter is invalid',
-                    value: { success: false, message: 'Invalid wallet-id parameter.' }
-                  },
+                  ...commonExamples.xWalletIdErrResponseExamples,
                 },
               },
             },
@@ -337,17 +546,10 @@ const apiDoc = {
     },
     '/wallet/address-index': {
       get: {
+        operationId: 'getAddressIndex',
         summary: 'Get the index of an address',
         parameters: [
-          {
-            name: 'x-wallet-id',
-            in: 'header',
-            description: 'Define the key of the corresponding wallet it will be executed the request.',
-            required: true,
-            schema: {
-              type: 'string',
-            },
-          },
+          { $ref: '#/components/parameters/XWalletIdParameter' },
           {
             name: 'address',
             in: 'query',
@@ -376,14 +578,7 @@ const apiDoc = {
                     summary: 'Wallet is not ready yet',
                     value: { success: false, message: 'Wallet is not ready.', state: 1 }
                   },
-                  'no-wallet-id': {
-                    summary: 'No wallet id parameter',
-                    value: { success: false, message: "Parameter 'wallet-id' is required." }
-                  },
-                  'invalid-wallet-id': {
-                    summary: 'Wallet id parameter is invalid',
-                    value: { success: false, message: 'Invalid wallet-id parameter.' }
-                  },
+                  ...commonExamples.xWalletIdErrResponseExamples,
                 },
               },
             },
@@ -393,17 +588,10 @@ const apiDoc = {
     },
     '/wallet/addresses': {
       get: {
+        operationId: 'getAddresses',
         summary: 'Return all generated addresses of the wallet.',
         parameters: [
-          {
-            name: 'x-wallet-id',
-            in: 'header',
-            description: 'Define the key of the corresponding wallet it will be executed the request.',
-            required: true,
-            schema: {
-              type: 'string',
-            },
-          }
+          { $ref: '#/components/parameters/XWalletIdParameter' },
         ],
         responses: {
           200: {
@@ -419,14 +607,7 @@ const apiDoc = {
                     summary: 'Wallet is not ready yet',
                     value: { success: false, message: 'Wallet is not ready.', state: 1 }
                   },
-                  'no-wallet-id': {
-                    summary: 'No wallet id parameter',
-                    value: { success: false, message: "Parameter 'wallet-id' is required." }
-                  },
-                  'invalid-wallet-id': {
-                    summary: 'Wallet id parameter is invalid',
-                    value: { success: false, message: 'Invalid wallet-id parameter.' }
-                  },
+                  ...commonExamples.xWalletIdErrResponseExamples,
                 },
               },
             },
@@ -436,17 +617,10 @@ const apiDoc = {
     },
     '/wallet/simple-send-tx': {
       post: {
+        operationId: 'simpleSendTx',
         summary: 'Send a transaction to exactly one output.',
         parameters: [
-          {
-            name: 'x-wallet-id',
-            in: 'header',
-            description: 'Define the key of the corresponding wallet it will be executed the request.',
-            required: true,
-            schema: {
-              type: 'string',
-            },
-          },
+          { $ref: '#/components/parameters/XWalletIdParameter' },
         ],
         requestBody: {
           description: 'Data to create the transaction',
@@ -525,14 +699,7 @@ const apiDoc = {
                     summary: 'Wallet is not ready yet',
                     value: { success: false, message: 'Wallet is not ready.', state: 1 }
                   },
-                  'no-wallet-id': {
-                    summary: 'No wallet id parameter',
-                    value: { success: false, message: "Parameter 'wallet-id' is required." }
-                  },
-                  'invalid-wallet-id': {
-                    summary: 'Wallet id parameter is invalid',
-                    value: { success: false, message: 'Invalid wallet-id parameter.' }
-                  },
+                  ...commonExamples.xWalletIdErrResponseExamples,
                 },
               },
             },
@@ -542,9 +709,10 @@ const apiDoc = {
     },
     '/wallet/decode': {
       post: {
-        summary: 'Decode tx hex into human readable inputs and outputs.',
+        operationId: 'decodeTx',
+        summary: 'Decode tx hex or serialized partial tx into human readable inputs and outputs with metadata to assist informed decision-making. To obtain input metadata, this method retrieves a transaction per input from the wallet\'s transaction history. If the required transaction is not located, the method queries the fullnode for the transaction details.',
         requestBody: {
-          description: 'Transaction hex representation',
+          description: 'Transaction hex representation or a partial transaction serialization.',
           required: true,
           content: {
             'application/json': {
@@ -575,20 +743,50 @@ const apiDoc = {
                     value: {
                       success: true,
                       tx: {
+                        completeSignatures: false,
+                        tokens: [],
                         outputs: [
                           {
-                            address: 'Wk2j7odPbC4Y98xKYBCFyNogxaRimU6BUj',
+                            decoded: {
+                              address: 'Wk2j7odPbC4Y98xKYBCFyNogxaRimU6BUj',
+                              timelock: null,
+                            },
+                            token: '00',
                             value: 100,
-                            tokenData: 1,
-                            token: '006e18f3c303892076a12e68b5c9c30afe9a96a528f0f3385898001858f9c35d'
+                            tokenData: 0,
+                            token_data: 0,
+                            script: 'dqkUISAnpOn9Vo269QBvOfBeWJTLx82IrA==',
+                            type: 'p2sh',
+                            mine: true,
                           }
                         ],
                         inputs: [
                           {
+                            decoded: {
+                              type: 'MultiSig',
+                              address: 'Wk2j7odPbC4Y98xKYBCFyNogxaRimU6BUj',
+                              timelock: null,
+                            },
                             txId: '006e18f3c303892076a12e68b5c9c30afe9a96a528f0f3385898001858f9c35d',
                             index: 0,
+                            token: '00',
+                            value: 100,
+                            tokenData: 0,
+                            token_data: 0,
+                            script: 'dqkUISAnpOn9Vo269QBvOfBeWJTLx82IrA==',
+                            signed: false,
+                            mine: true,
                           }
                         ]
+                      },
+                      balance: {
+                        '00': {
+                          tokens: { available: 0, locked: 0 },
+                          authorities: {
+                            melt: { available: 0, locked: 0 },
+                            mint: { available: 0, locked: 0 },
+                          },
+                        },
                       },
                     },
                   },
@@ -601,17 +799,10 @@ const apiDoc = {
     },
     '/wallet/tx-proposal': {
       post: {
+        operationId: 'createTxProposal',
         summary: 'Build a transaction with many outputs without sending. Will not include signatures.',
         parameters: [
-          {
-            name: 'x-wallet-id',
-            in: 'header',
-            description: 'Define the key of the corresponding wallet it will be executed the request.',
-            required: true,
-            schema: {
-              type: 'string',
-            },
-          }
+          { $ref: '#/components/parameters/XWalletIdParameter' },
         ],
         requestBody: {
           description: 'Data to create the transaction',
@@ -771,14 +962,87 @@ const apiDoc = {
                     summary: 'Wallet is not ready yet',
                     value: { success: false, message: 'Wallet is not ready.', state: 1 }
                   },
-                  'no-wallet-id': {
-                    summary: 'No wallet id parameter',
-                    value: { success: false, message: "Parameter 'wallet-id' is required." }
+                  ...commonExamples.xWalletIdErrResponseExamples,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    '/wallet/tx-proposal/melt-tokens': {
+      post: {
+        operationId: 'proposalMeltTokens',
+        summary: 'Get the hex representation of a melt tokens transaction without input data.',
+        parameters: [
+          { $ref: '#/components/parameters/XWalletIdParameter' },
+        ],
+        requestBody: {
+          description: 'Data to melt tokens.',
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['token', 'amount'],
+                properties: {
+                  token: {
+                    type: 'string',
+                    description: 'UID of the token to melt.'
                   },
-                  'invalid-wallet-id': {
-                    summary: 'Wallet id parameter is invalid',
-                    value: { success: false, message: 'Invalid wallet-id parameter.' }
+                  amount: {
+                    type: 'integer',
+                    description: 'The amount of tokens to melt. It must be an integer with the value in cents, i.e., 123 means 1.23.'
                   },
+                  deposit_address: {
+                    type: 'string',
+                    description: 'Optional deposit_address to send the deposit HTR received after the melt.'
+                  },
+                  change_address: {
+                    type: 'string',
+                    description: 'Optional address to send the change amount of custom tokens after melt.'
+                  },
+                  melt_authority_address: {
+                    type: 'string',
+                    description: 'Optional address to send the new melt authority output created.'
+                  },
+                  allow_external_melt_authority_address: {
+                    type: 'boolean',
+                    description: 'If the melt authority address is allowed to be from another wallet. Default is false.'
+                  },
+                }
+              },
+              examples: {
+                data: {
+                  summary: 'Data to melt tokens.',
+                  value: {
+                    token: '000016392ed330ed99ff0f74e4169a8d257fd1d07d3b38c4f8ecf21a78f10efa',
+                    amount: 100,
+                  }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          200: {
+            description: 'Melt tokens.',
+            content: {
+              'application/json': {
+                examples: {
+                  error: {
+                    summary: 'Insuficient amount of tokens',
+                    value: { success: false, error: "There aren't enough tokens in the inputs to melt." }
+                  },
+                  success: {
+                    summary: 'Success',
+                    value: { success: true, txHex: '0001010201000016392ed330ed99ff0f74e4169a8d257fd1d07d3b38c4f8ecf21a78f10efa000016392ed330ed99ff0f74e4169a8d257fd1d07d3b38c4f8ecf21a78f10efa030069463044022011ebd6bfa5e49d504542e58b55dc79cea70e97069546eae2d4b7f470f7b9d6d302203cb7739de69eded37a5ef15e1d669768057a68d4b6089911ee63d746100a6a1b2102a5c1b462ccdcd8b4bb2cf672e0672576420c3102ecbe74da15b2cf56cf49b4a5000016392ed330ed99ff0f74e4169a8d257fd1d07d3b38c4f8ecf21a78f10efa010069463044022011ebd6bfa5e49d504542e58b55dc79cea70e97069546eae2d4b7f470f7b9d6d302203cb7739de69eded37a5ef15e1d669768057a68d4b6089911ee63d746100a6a1b2102a5c1b462ccdcd8b4bb2cf672e0672576420c3102ecbe74da15b2cf56cf49b4a500000002810017a91462d397b360118b99a8d35892366074fe16fa6f09874031fc9b86a7279e649b63f60000000000' }
+                  },
+                  'wallet-not-ready': {
+                    summary: 'Wallet is not ready yet',
+                    value: { success: false, message: 'Wallet is not ready.', state: 1 }
+                  },
+                  ...commonExamples.xWalletIdErrResponseExamples,
                 },
               },
             },
@@ -788,17 +1052,10 @@ const apiDoc = {
     },
     '/wallet/tx-proposal/add-signatures': {
       post: {
+        operationId: 'proposalAddSignatures',
         summary: 'Add signatures to the transaction and return the txHex with the signatures.',
         parameters: [
-          {
-            name: 'x-wallet-id',
-            in: 'header',
-            description: 'Define the key of the corresponding wallet it will be executed the request.',
-            required: true,
-            schema: {
-              type: 'string',
-            },
-          },
+          { $ref: '#/components/parameters/XWalletIdParameter' },
         ],
         requestBody: {
           description: 'Transaction hex and signatures',
@@ -846,14 +1103,7 @@ const apiDoc = {
                     summary: 'Success',
                     value: { success: true, txHex: '0123abc...' }
                   },
-                  'no-wallet-id': {
-                    summary: 'No wallet id parameter',
-                    value: { success: false, message: "Parameter 'wallet-id' is required." }
-                  },
-                  'invalid-wallet-id': {
-                    summary: 'Wallet id parameter is invalid',
-                    value: { success: false, message: 'Invalid wallet-id parameter.' }
-                  },
+                  ...commonExamples.xWalletIdErrResponseExamples,
                 },
               },
             },
@@ -863,17 +1113,10 @@ const apiDoc = {
     },
     '/push-tx': {
       post: {
+        operationId: 'pushTxFromHex',
         summary: 'Push a transaction from the txHex.',
         parameters: [
-          {
-            name: 'x-wallet-id',
-            in: 'header',
-            description: 'Define the key of the corresponding wallet it will be executed the request.',
-            required: true,
-            schema: {
-              type: 'string',
-            },
-          },
+          { $ref: '#/components/parameters/XWalletIdParameter' },
         ],
         requestBody: {
           description: 'Signed transaction hex',
@@ -903,14 +1146,7 @@ const apiDoc = {
                     summary: 'Success',
                     value: { success: true, tx: { hash: '00000000059dfb65633acacc402c881b128cc7f5c04b6cea537ea2136f1b97fb', nonce: 2455281664, timestamp: 1594955941, version: 1, weight: 18.11897634891149, parents: ['00000000556bbfee6d37cc099a17747b06f48ca3d9bf4af85c707aa95ad04b3f', '00000000e2e3e304e364edebff1c04c95cc9ef282463295f6e417b85fec361dd'], inputs: [{ tx_id: '00000000caaa37ab729805b91af2de8174e3ef24410f4effc4ffda3b610eae65', index: 1, data: 'RjBEAiAYR8jc+zqY596QyMp+K3Eag3kQB5aXdfYja19Fa17u0wIgCdhBQpjlBiAawP/9WRAqAzW85CJlBpzq+YVhUALg8IUhAueFQuEkAo+s2m7nj/hnh0nyphcUuxa2LoRBjOsEOHRQ' }, { tx_id: '00000000caaa37ab729805b91af2de8174e3ef24410f4effc4ffda3b610eae65', index: 2, data: 'RzBFAiEAofVXnCKNCEu4GRk7j+wHpQM6qmezRcfxHCe/PcUdbegCIE2nip27ZQtkpkEgNEhycqHM4CkLYMLVUgskphYsd/M9IQLHG6YJxXifQ6eMxPHbINFEJAUvrzKWe9V7AXXW4iywjg==' }], outputs: [{ value: 100, token_data: 0, script: 'dqkUqdK8VisGSJuNItIBRYFfSHfHjPeIrA==' }, { value: 200, token_data: 0, script: 'dqkUISAnpOn9Vo269QBvOfBeWJTLx82IrA==' }], tokens: [] } }
                   },
-                  'no-wallet-id': {
-                    summary: 'No wallet id parameter',
-                    value: { success: false, message: "Parameter 'wallet-id' is required." }
-                  },
-                  'invalid-wallet-id': {
-                    summary: 'Wallet id parameter is invalid',
-                    value: { success: false, message: 'Invalid wallet-id parameter.' }
-                  },
+                  ...commonExamples.xWalletIdErrResponseExamples,
                 },
               },
             },
@@ -920,17 +1156,10 @@ const apiDoc = {
     },
     '/wallet/tx-proposal/get-wallet-inputs': {
       get: {
+        operationId: 'proposalGetWalletInputs',
         summary: 'Identify which inputs on the transaction are from the loaded wallet.',
         parameters: [
-          {
-            name: 'x-wallet-id',
-            in: 'header',
-            description: 'Define the key of the corresponding wallet it will be executed the request.',
-            required: true,
-            schema: {
-              type: 'string',
-            },
-          },
+          { $ref: '#/components/parameters/XWalletIdParameter' },
           {
             name: 'txHex',
             in: 'query',
@@ -949,26 +1178,19 @@ const apiDoc = {
                 examples: {
                   success: {
                     summary: 'Success',
-                    inputs: [
-                      {
+                    value: {
+                      inputs: [{
                         inputIndex: 0,
                         addressIndex: 1,
                         addressPath: 'm/44\'/280\'/0\'/0/1',
-                      },
-                    ],
+                      }],
+                    },
                   },
                   'wallet-not-ready': {
                     summary: 'Wallet is not ready yet',
                     value: { success: false, message: 'Wallet is not ready.', state: 1 }
                   },
-                  'no-wallet-id': {
-                    summary: 'No wallet id parameter',
-                    value: { success: false, message: "Parameter 'wallet-id' is required." }
-                  },
-                  'invalid-wallet-id': {
-                    summary: 'Wallet id parameter is invalid',
-                    value: { success: false, message: 'Invalid wallet-id parameter.' }
-                  },
+                  ...commonExamples.xWalletIdErrResponseExamples,
                 },
               },
             },
@@ -978,17 +1200,10 @@ const apiDoc = {
     },
     '/wallet/tx-proposal/input-data': {
       post: {
+        operationId: 'proposalBuildInputData',
         summary: 'Build an input data from the ECDSA signature(s).',
         parameters: [
-          {
-            name: 'x-wallet-id',
-            in: 'header',
-            description: 'Define the key of the corresponding wallet it will be executed the request.',
-            required: true,
-            schema: {
-              type: 'string',
-            },
-          },
+          { $ref: '#/components/parameters/XWalletIdParameter' },
         ],
         requestBody: {
           description: 'Data required to build the input data',
@@ -997,7 +1212,7 @@ const apiDoc = {
             'application/json': {
               schema: {
                 type: 'object',
-                required: ['txHex'],
+                required: ['index'],
                 properties: {
                   index: {
                     type: 'number',
@@ -1005,12 +1220,10 @@ const apiDoc = {
                   },
                   signature: {
                     type: 'string',
-                    optional: true,
                     description: '[P2PKH] The ECDSA signature in little endian, DER encoded in hex format.',
                   },
                   signatures: {
                     type: 'object',
-                    optional: true,
                     description: '[P2SH] Each key will be the signer xpubkey as used on the multisig configuration, the value will be the signature (ECDSA little endian, DER encoded in hex format).',
                   },
                 }
@@ -1028,14 +1241,6 @@ const apiDoc = {
                     summary: 'Success',
                     value: { success: true, inputData: 'abc123...' }
                   },
-                  'no-wallet-id': {
-                    summary: 'No wallet id parameter',
-                    value: { success: false, message: "Parameter 'wallet-id' is required." }
-                  },
-                  'invalid-wallet-id': {
-                    summary: 'Wallet id parameter is invalid',
-                    value: { success: false, message: 'Invalid wallet-id parameter.' }
-                  },
                   'p2sh-wallet-not-multisig': {
                     summary: 'Loaded wallet is not multisig but a multisig input data was requested.',
                     value: { success: false, message: 'wallet is not MultiSig' }
@@ -1044,6 +1249,7 @@ const apiDoc = {
                     summary: 'There is a signature from a signer that does not belong on the loaded wallet multisig.',
                     value: { success: false, message: 'signature from unknown signer' }
                   },
+                  ...commonExamples.xWalletIdErrResponseExamples,
                 },
               },
             },
@@ -1053,17 +1259,10 @@ const apiDoc = {
     },
     '/wallet/p2sh/tx-proposal': {
       post: {
+        operationId: 'createP2shTxProposal',
         summary: 'Get the hex representation of a transaction without input data.',
         parameters: [
-          {
-            name: 'x-wallet-id',
-            in: 'header',
-            description: 'Define the key of the corresponding wallet it will be executed the request.',
-            required: true,
-            schema: {
-              type: 'string',
-            },
-          }
+          { $ref: '#/components/parameters/XWalletIdParameter' },
         ],
         requestBody: {
           description: 'Data to create the transaction',
@@ -1160,14 +1359,7 @@ const apiDoc = {
                     summary: 'Wallet is not ready yet',
                     value: { success: false, message: 'Wallet is not ready.', state: 1 }
                   },
-                  'no-wallet-id': {
-                    summary: 'No wallet id parameter',
-                    value: { success: false, message: "Parameter 'wallet-id' is required." }
-                  },
-                  'invalid-wallet-id': {
-                    summary: 'Wallet id parameter is invalid',
-                    value: { success: false, message: 'Invalid wallet-id parameter.' }
-                  },
+                  ...commonExamples.xWalletIdErrResponseExamples,
                 },
               },
             },
@@ -1175,19 +1367,197 @@ const apiDoc = {
         },
       },
     },
-    '/wallet/p2sh/tx-proposal/get-my-signatures': {
+    '/wallet/p2sh/tx-proposal/create-token': {
       post: {
-        summary: 'Get the signatures for all inputs from the wallet',
+        operationId: 'createTokenP2shProposal',
+        summary: 'Get the hex representation of a create a token transaction without input data.',
         parameters: [
-          {
-            name: 'x-wallet-id',
-            in: 'header',
-            description: 'Define the key of the corresponding wallet it will be executed the request.',
-            required: true,
-            schema: {
-              type: 'string',
+          { $ref: '#/components/parameters/XWalletIdParameter' },
+        ],
+        requestBody: {
+          description: 'Data to create the token.',
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['name', 'symbol', 'amount'],
+                properties: {
+                  name: {
+                    type: 'string',
+                    description: 'Name of the token.'
+                  },
+                  symbol: {
+                    type: 'string',
+                    description: 'Symbol of the token.'
+                  },
+                  amount: {
+                    type: 'integer',
+                    description: 'The amount of tokens to mint. It must be an integer with the value in cents, i.e., 123 means 1.23.'
+                  },
+                  address: {
+                    type: 'string',
+                    description: 'Optional destination address of the minted tokens.'
+                  },
+                  change_address: {
+                    type: 'string',
+                    description: 'Optional address to send the change amount.'
+                  },
+                  create_mint: {
+                    type: 'boolean',
+                    description: 'If should create mint authority for the created token. Default is true.'
+                  },
+                  mint_authority_address: {
+                    type: 'string',
+                    description: 'Optional address to send the mint authority output created.'
+                  },
+                  allow_external_mint_authority_address: {
+                    type: 'boolean',
+                    description: 'If the mint authority address is allowed to be from another wallet. Default is false.'
+                  },
+                  create_melt: {
+                    type: 'boolean',
+                    description: 'If should create melt authority for the created token. Default is true.'
+                  },
+                  melt_authority_address: {
+                    type: 'string',
+                    description: 'Optional address to send the melt authority output created.'
+                  },
+                  allow_external_melt_authority_address: {
+                    type: 'boolean',
+                    description: 'If the melt authority address is allowed to be from another wallet. Default is false.'
+                  },
+                }
+              },
+              examples: {
+                data: {
+                  summary: 'Data to create the token',
+                  value: {
+                    name: 'Test Coin',
+                    symbol: 'TSC',
+                    amount: 100,
+                  }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          200: {
+            description: 'Create the token',
+            content: {
+              'application/json': {
+                examples: {
+                  error: {
+                    summary: 'Insuficient amount of tokens',
+                    value: { success: false, error: "Don't have enough HTR funds to mint this amount." }
+                  },
+                  success: {
+                    summary: 'Success',
+                    value: { success: true, txHex: '00020104000016392ed330ed99ff0f74e4169a8d257fd1d07d3b38c4f8ecf21a78f10efa000069463044022074a1bf9c2d56e887558f459573d75df647acbde7b90de3502b7220425ff69dcb022000e0690e43ad306adef7f59bd07cf817ab8da29bce5cd82ede61ffb99cb460022102a5c1b462ccdcd8b4bb2cf672e0672576420c3102ecbe74da15b2cf56cf49b4a5000001f1000017a91462d397b360118b99a8d35892366074fe16fa6f098700000001010017a91462d397b360118b99a8d35892366074fe16fa6f098700000001810017a91462d397b360118b99a8d35892366074fe16fa6f098700000002810017a91462d397b360118b99a8d35892366074fe16fa6f098701164d7920437573746f6d20546f6b656e204d616e75616c034d43544031dbcd5cef20c5649b59130000000000' }
+                  },
+                  'wallet-not-ready': {
+                    summary: 'Wallet is not ready yet',
+                    value: { success: false, message: 'Wallet is not ready.', state: 1 }
+                  },
+                  ...commonExamples.xWalletIdErrResponseExamples,
+                },
+              },
             },
           },
+        },
+      },
+    },
+    '/wallet/p2sh/tx-proposal/mint-tokens': {
+      post: {
+        operationId: 'mintTokensP2shProposal',
+        summary: 'Get the hex representation of a mint tokens transaction without input data.',
+        parameters: [
+          { $ref: '#/components/parameters/XWalletIdParameter' },
+        ],
+        requestBody: {
+          description: 'Data to mint tokens.',
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['token', 'amount'],
+                properties: {
+                  token: {
+                    type: 'string',
+                    description: 'UID of the token to mint.'
+                  },
+                  amount: {
+                    type: 'integer',
+                    description: 'The amount of tokens to mint. It must be an integer with the value in cents, i.e., 123 means 1.23.'
+                  },
+                  address: {
+                    type: 'string',
+                    description: 'Optional destination address of the minted tokens.'
+                  },
+                  change_address: {
+                    type: 'string',
+                    description: 'Optional address to send the change amount.'
+                  },
+                  create_mint: {
+                    type: 'boolean',
+                    description: 'If should create another mint authority for the created token. Default is true.'
+                  },
+                  mint_authority_address: {
+                    type: 'string',
+                    description: 'Optional address to send the new mint authority output created.'
+                  },
+                  allow_external_mint_authority_address: {
+                    type: 'boolean',
+                    description: 'If the mint authority address is allowed to be from another wallet. Default is false.'
+                  },
+                }
+              },
+              examples: {
+                'Mint Tokens': {
+                  summary: 'Data to mint tokens',
+                  value: {
+                    token: '0000073b972162f70061f61cf0082b7a47263cc1659a05976aca5cd01b3351ee',
+                    amount: 100,
+                  }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          200: {
+            description: 'Mint tokens.',
+            content: {
+              'application/json': {
+                examples: {
+                  error: {
+                    summary: 'Insufficient amount of tokens',
+                    value: { success: false, error: "Don't have enough HTR funds to mint this amount." }
+                  },
+                  success: {
+                    summary: 'Success',
+                    value: { success: true, txHex: '0001010203000016392ed330ed99ff0f74e4169a8d257fd1d07d3b38c4f8ecf21a78f10efa000016392ed330ed99ff0f74e4169a8d257fd1d07d3b38c4f8ecf21a78f10efa00006946304402201166baf8513c0bfd21edcb169a4df5645ca826b22b6ed22d13945628094a04c502204f382ef9e6b903397b2bcaaed5316b0bb54212037a30e5cda7a5cf4d785b8f332102a5c1b462ccdcd8b4bb2cf672e0672576420c3102ecbe74da15b2cf56cf49b4a5000016392ed330ed99ff0f74e4169a8d257fd1d07d3b38c4f8ecf21a78f10efa02006946304402201166baf8513c0bfd21edcb169a4df5645ca826b22b6ed22d13945628094a04c502204f382ef9e6b903397b2bcaaed5316b0bb54212037a30e5cda7a5cf4d785b8f332102a5c1b462ccdcd8b4bb2cf672e0672576420c3102ecbe74da15b2cf56cf49b4a5000001f1000017a91462d397b360118b99a8d35892366074fe16fa6f098700000001010017a91462d397b360118b99a8d35892366074fe16fa6f098700000001810017a91462d397b360118b99a8d35892366074fe16fa6f098740327a9b3baad50b649b5f1d0000000000' }
+                  },
+                  'wallet-not-ready': {
+                    summary: 'Wallet is not ready yet',
+                    value: { success: false, message: 'Wallet is not ready.', state: 1 }
+                  },
+                  ...commonExamples.xWalletIdErrResponseExamples,
+                },
+              },
+            },
+          },
+        },
+      }
+    },
+    '/wallet/p2sh/tx-proposal/get-my-signatures': {
+      post: {
+        operationId: 'proposalP2shGetMySignatures',
+        summary: 'Get the signatures for all inputs from the wallet',
+        parameters: [
+          { $ref: '#/components/parameters/XWalletIdParameter' },
         ],
         requestBody: {
           description: 'Transaction hex representation',
@@ -1217,14 +1587,7 @@ const apiDoc = {
                     summary: 'Success',
                     value: { success: true, signatures: '...' },
                   },
-                  'no-wallet-id': {
-                    summary: 'No wallet id parameter',
-                    value: { success: false, message: "Parameter 'wallet-id' is required." }
-                  },
-                  'invalid-wallet-id': {
-                    summary: 'Wallet id parameter is invalid',
-                    value: { success: false, message: 'Invalid wallet-id parameter.' }
-                  },
+                  ...commonExamples.xWalletIdErrResponseExamples,
                 },
               },
             },
@@ -1234,17 +1597,10 @@ const apiDoc = {
     },
     '/wallet/p2sh/tx-proposal/sign': {
       post: {
+        operationId: 'signP2shProposal',
         summary: 'Returns a transaction hex with input data calculated from the arguments',
         parameters: [
-          {
-            name: 'x-wallet-id',
-            in: 'header',
-            description: 'Define the key of the corresponding wallet it will be executed the request.',
-            required: true,
-            schema: {
-              type: 'string',
-            },
-          },
+          { $ref: '#/components/parameters/XWalletIdParameter' },
         ],
         requestBody: {
           description: 'Transaction hex and signatures',
@@ -1278,14 +1634,7 @@ const apiDoc = {
                     summary: 'Success',
                     value: { success: true, txHex: '0123abc...' }
                   },
-                  'no-wallet-id': {
-                    summary: 'No wallet id parameter',
-                    value: { success: false, message: "Parameter 'wallet-id' is required." }
-                  },
-                  'invalid-wallet-id': {
-                    summary: 'Wallet id parameter is invalid',
-                    value: { success: false, message: 'Invalid wallet-id parameter.' }
-                  },
+                  ...commonExamples.xWalletIdErrResponseExamples,
                 },
               },
             },
@@ -1295,17 +1644,10 @@ const apiDoc = {
     },
     '/wallet/p2sh/tx-proposal/sign-and-push': {
       post: {
+        operationId: 'signAndPushP2shProposal',
         summary: 'Send a transaction from the transaction hex and collected signatures',
         parameters: [
-          {
-            name: 'x-wallet-id',
-            in: 'header',
-            description: 'Define the key of the corresponding wallet it will be executed the request.',
-            required: true,
-            schema: {
-              type: 'string',
-            },
-          },
+          { $ref: '#/components/parameters/XWalletIdParameter' },
         ],
         requestBody: {
           description: 'Transaction hex and signatures',
@@ -1339,14 +1681,7 @@ const apiDoc = {
                     summary: 'Success',
                     value: { success: true, hash: '00000000059dfb65633acacc402c881b128cc7f5c04b6cea537ea2136f1b97fb', nonce: 2455281664, timestamp: 1594955941, version: 1, weight: 18.11897634891149, parents: ['00000000556bbfee6d37cc099a17747b06f48ca3d9bf4af85c707aa95ad04b3f', '00000000e2e3e304e364edebff1c04c95cc9ef282463295f6e417b85fec361dd'], inputs: [{ tx_id: '00000000caaa37ab729805b91af2de8174e3ef24410f4effc4ffda3b610eae65', index: 1, data: 'RjBEAiAYR8jc+zqY596QyMp+K3Eag3kQB5aXdfYja19Fa17u0wIgCdhBQpjlBiAawP/9WRAqAzW85CJlBpzq+YVhUALg8IUhAueFQuEkAo+s2m7nj/hnh0nyphcUuxa2LoRBjOsEOHRQ' }, { tx_id: '00000000caaa37ab729805b91af2de8174e3ef24410f4effc4ffda3b610eae65', index: 2, data: 'RzBFAiEAofVXnCKNCEu4GRk7j+wHpQM6qmezRcfxHCe/PcUdbegCIE2nip27ZQtkpkEgNEhycqHM4CkLYMLVUgskphYsd/M9IQLHG6YJxXifQ6eMxPHbINFEJAUvrzKWe9V7AXXW4iywjg==' }], outputs: [{ value: 100, token_data: 0, script: 'dqkUqdK8VisGSJuNItIBRYFfSHfHjPeIrA==' }, { value: 200, token_data: 0, script: 'dqkUISAnpOn9Vo269QBvOfBeWJTLx82IrA==' }], tokens: [] }
                   },
-                  'no-wallet-id': {
-                    summary: 'No wallet id parameter',
-                    value: { success: false, message: "Parameter 'wallet-id' is required." }
-                  },
-                  'invalid-wallet-id': {
-                    summary: 'Wallet id parameter is invalid',
-                    value: { success: false, message: 'Invalid wallet-id parameter.' }
-                  },
+                  ...commonExamples.xWalletIdErrResponseExamples,
                 },
               },
             },
@@ -1356,17 +1691,10 @@ const apiDoc = {
     },
     '/wallet/atomic-swap/tx-proposal': {
       post: {
+        operationId: 'createAtomicSwapProposal',
         summary: 'Create or update an atomic-swap proposal.',
         parameters: [
-          {
-            name: 'x-wallet-id',
-            in: 'header',
-            description: 'Define the key of the corresponding wallet it will be executed the request.',
-            required: true,
-            schema: {
-              type: 'string',
-            },
-          }
+          { $ref: '#/components/parameters/XWalletIdParameter' },
         ],
         requestBody: {
           description: 'Data to create the proposal',
@@ -1585,6 +1913,7 @@ const apiDoc = {
                     },
                     service: {
                       proposal_id: 'b11948c7-48...',
+                      password: 'abc123',
                       version: 1,
                     }
                   },
@@ -1611,14 +1940,6 @@ const apiDoc = {
                     summary: 'Wallet is not ready yet',
                     value: { success: false, message: 'Wallet is not ready.', state: 1 }
                   },
-                  'no-wallet-id': {
-                    summary: 'No wallet id parameter',
-                    value: { success: false, message: "Parameter 'wallet-id' is required." }
-                  },
-                  'invalid-wallet-id': {
-                    summary: 'Wallet id parameter is invalid',
-                    value: { success: false, message: 'Invalid wallet-id parameter.' }
-                  },
                   'service-invalid-password': {
                     summary: 'Atomic Swap Service password is invalid',
                     value: { success: false, error: 'Password must have at least 3 characters' }
@@ -1632,6 +1953,7 @@ const apiDoc = {
                       createdProposalId: 'b11948c7-48...',
                     }
                   },
+                  ...commonExamples.xWalletIdErrResponseExamples,
                 },
               },
             },
@@ -1641,17 +1963,10 @@ const apiDoc = {
     },
     '/wallet/atomic-swap/tx-proposal/get-my-signatures': {
       post: {
+        operationId: 'getMySwapSignatures',
         summary: 'Get this wallet signatures for a proposal.',
         parameters: [
-          {
-            name: 'x-wallet-id',
-            in: 'header',
-            description: 'Define the key of the corresponding wallet it will be executed the request.',
-            required: true,
-            schema: {
-              type: 'string',
-            },
-          }
+          { $ref: '#/components/parameters/XWalletIdParameter' },
         ],
         requestBody: {
           description: 'Get the requested wallet\'s signatures for an atomic-swap.',
@@ -1693,14 +2008,7 @@ const apiDoc = {
                     summary: 'Wallet is not ready yet',
                     value: { success: false, message: 'Wallet is not ready.', state: 1 }
                   },
-                  'no-wallet-id': {
-                    summary: 'No wallet id parameter',
-                    value: { success: false, message: "Parameter 'wallet-id' is required." }
-                  },
-                  'invalid-wallet-id': {
-                    summary: 'Wallet id parameter is invalid',
-                    value: { success: false, message: 'Invalid wallet-id parameter.' }
-                  },
+                  ...commonExamples.xWalletIdErrResponseExamples,
                 },
               },
             },
@@ -1710,17 +2018,10 @@ const apiDoc = {
     },
     '/wallet/atomic-swap/tx-proposal/register/{proposalId}': {
       post: {
+        operationId: 'registerSwapServiceProposal',
         summary: 'Registers a proposal for the Headless Wallet to listen to and interact with the Atomic Swap Service',
         parameters: [
-          {
-            name: 'x-wallet-id',
-            in: 'header',
-            description: 'Define the key of the corresponding wallet it will be executed the request.',
-            required: true,
-            schema: {
-              type: 'string',
-            },
-          },
+          { $ref: '#/components/parameters/XWalletIdParameter' },
           {
             name: 'proposalId',
             in: 'path',
@@ -1786,6 +2087,7 @@ const apiDoc = {
                       },
                     }
                   },
+                  ...commonExamples.xWalletIdErrResponseExamples,
                 },
               },
             },
@@ -1793,19 +2095,12 @@ const apiDoc = {
         },
       },
     },
-    '/wallet/atomic-swap/tx-proposal/fetch': {
+    '/wallet/atomic-swap/tx-proposal/fetch/{proposalId}': {
       get: {
+        operationId: 'fetchSwapServiceProposal',
         summary: 'Fetches a proposal data from the Atomic Swap Service',
         parameters: [
-          {
-            name: 'x-wallet-id',
-            in: 'header',
-            description: 'Define the key of the corresponding wallet it will be executed the request.',
-            required: true,
-            schema: {
-              type: 'string',
-            },
-          },
+          { $ref: '#/components/parameters/XWalletIdParameter' },
           {
             name: 'proposalId',
             in: 'path',
@@ -1853,6 +2148,7 @@ const apiDoc = {
                       },
                     }
                   },
+                  ...commonExamples.xWalletIdErrResponseExamples,
                 },
               },
             },
@@ -1862,17 +2158,10 @@ const apiDoc = {
     },
     '/wallet/atomic-swap/tx-proposal/list': {
       get: {
+        operationId: 'listSwapServiceProposals',
         summary: 'Fetches the list of listened proposals for this wallet',
         parameters: [
-          {
-            name: 'x-wallet-id',
-            in: 'header',
-            description: 'Define the key of the corresponding wallet it will be executed the request.',
-            required: true,
-            schema: {
-              type: 'string',
-            },
-          },
+          { $ref: '#/components/parameters/XWalletIdParameter' },
         ],
         responses: {
           200: {
@@ -1895,6 +2184,7 @@ const apiDoc = {
                       },
                     }
                   },
+                  ...commonExamples.xWalletIdErrResponseExamples,
                 },
               },
             },
@@ -1902,19 +2192,12 @@ const apiDoc = {
         },
       },
     },
-    '/wallet/atomic-swap/tx-proposal/delete': {
+    '/wallet/atomic-swap/tx-proposal/delete/{proposalId}': {
       delete: {
+        operationId: 'deleteSwapServiceProposal',
         summary: 'Removes a proposal from the registered listened proposals',
         parameters: [
-          {
-            name: 'x-wallet-id',
-            in: 'header',
-            description: 'Define the key of the corresponding wallet it will be executed the request.',
-            required: true,
-            schema: {
-              type: 'string',
-            },
-          },
+          { $ref: '#/components/parameters/XWalletIdParameter' },
           {
             name: 'proposalId',
             in: 'path',
@@ -1954,6 +2237,7 @@ const apiDoc = {
                       },
                     }
                   },
+                  ...commonExamples.xWalletIdErrResponseExamples,
                 },
               },
             },
@@ -1963,17 +2247,10 @@ const apiDoc = {
     },
     '/wallet/atomic-swap/tx-proposal/sign': {
       post: {
+        operationId: 'signSwapProposal',
         summary: 'Add signatures to a proposal and return the signed transaction in hex format.',
         parameters: [
-          {
-            name: 'x-wallet-id',
-            in: 'header',
-            description: 'Define the key of the corresponding wallet it will be executed the request.',
-            required: true,
-            schema: {
-              type: 'string',
-            },
-          }
+          { $ref: '#/components/parameters/XWalletIdParameter' },
         ],
         requestBody: {
           description: 'Add signatures and return the txHex of the resulting transaction.',
@@ -2050,14 +2327,7 @@ const apiDoc = {
                     summary: 'Wallet is not ready yet',
                     value: { success: false, message: 'Wallet is not ready.', state: 1 }
                   },
-                  'no-wallet-id': {
-                    summary: 'No wallet id parameter',
-                    value: { success: false, message: "Parameter 'wallet-id' is required." }
-                  },
-                  'invalid-wallet-id': {
-                    summary: 'Wallet id parameter is invalid',
-                    value: { success: false, message: 'Invalid wallet-id parameter.' }
-                  },
+                  ...commonExamples.xWalletIdErrResponseExamples,
                 },
               },
             },
@@ -2067,17 +2337,10 @@ const apiDoc = {
     },
     '/wallet/atomic-swap/tx-proposal/sign-and-push': {
       post: {
+        operationId: 'signAndPushSwapProposal',
         summary: 'Add signatures to a proposal and push the signed transaction.',
         parameters: [
-          {
-            name: 'x-wallet-id',
-            in: 'header',
-            description: 'Define the key of the corresponding wallet it will be executed the request.',
-            required: true,
-            schema: {
-              type: 'string',
-            },
-          }
+          { $ref: '#/components/parameters/XWalletIdParameter' },
         ],
         requestBody: {
           description: 'Add signatures and push the resulting transaction.',
@@ -2116,6 +2379,7 @@ const apiDoc = {
         },
         responses: {
           200: {
+            description: 'Add signatures to a proposal.',
             content: {
               'application/json': {
                 examples: {
@@ -2127,14 +2391,7 @@ const apiDoc = {
                     summary: 'Wallet is not ready yet',
                     value: { success: false, message: 'Wallet is not ready.', state: 1 }
                   },
-                  'no-wallet-id': {
-                    summary: 'No wallet id parameter',
-                    value: { success: false, message: "Parameter 'wallet-id' is required." }
-                  },
-                  'invalid-wallet-id': {
-                    summary: 'Wallet id parameter is invalid',
-                    value: { success: false, message: 'Invalid wallet-id parameter.' }
-                  },
+                  ...commonExamples.xWalletIdErrResponseExamples,
                 },
               },
             },
@@ -2144,17 +2401,10 @@ const apiDoc = {
     },
     '/wallet/atomic-swap/tx-proposal/unlock': {
       post: {
+        operationId: 'unlockSwapProposalInputs',
         summary: 'Unlock all inputs if they are marked as selected on the wallet storage.',
         parameters: [
-          {
-            name: 'x-wallet-id',
-            in: 'header',
-            description: 'Define the key of the corresponding wallet it will be executed the request.',
-            required: true,
-            schema: {
-              type: 'string',
-            },
-          }
+          { $ref: '#/components/parameters/XWalletIdParameter' },
         ],
         requestBody: {
           description: 'Unlock the inputs on the proposal.',
@@ -2196,14 +2446,7 @@ const apiDoc = {
                     summary: 'Wallet is not ready yet',
                     value: { success: false, message: 'Wallet is not ready.', state: 1 }
                   },
-                  'no-wallet-id': {
-                    summary: 'No wallet id parameter',
-                    value: { success: false, message: "Parameter 'wallet-id' is required." }
-                  },
-                  'invalid-wallet-id': {
-                    summary: 'Wallet id parameter is invalid',
-                    value: { success: false, message: 'Invalid wallet-id parameter.' }
-                  },
+                  ...commonExamples.xWalletIdErrResponseExamples,
                 },
               },
             },
@@ -2213,17 +2456,10 @@ const apiDoc = {
     },
     '/wallet/atomic-swap/tx-proposal/get-locked-utxos': {
       get: {
+        operationId: 'getSwapLockedUtxos',
         summary: 'Get all utxos marked selected as input on a transaction to be sent.',
         parameters: [
-          {
-            name: 'x-wallet-id',
-            in: 'header',
-            description: 'Define the key of the corresponding wallet it will be executed the request.',
-            required: true,
-            schema: {
-              type: 'string',
-            },
-          }
+          { $ref: '#/components/parameters/XWalletIdParameter' },
         ],
         responses: {
           200: {
@@ -2247,14 +2483,7 @@ const apiDoc = {
                     summary: 'Wallet is not ready yet',
                     value: { success: false, message: 'Wallet is not ready.', state: 1 }
                   },
-                  'no-wallet-id': {
-                    summary: 'No wallet id parameter',
-                    value: { success: false, message: "Parameter 'wallet-id' is required." }
-                  },
-                  'invalid-wallet-id': {
-                    summary: 'Wallet id parameter is invalid',
-                    value: { success: false, message: 'Invalid wallet-id parameter.' }
-                  },
+                  ...commonExamples.xWalletIdErrResponseExamples,
                 },
               },
             },
@@ -2264,17 +2493,10 @@ const apiDoc = {
     },
     '/wallet/atomic-swap/tx-proposal/get-input-data': {
       post: {
+        operationId: 'getSwapInputData',
         summary: 'Extract input data from a txHex in an atomic-swap compliant format.',
         parameters: [
-          {
-            name: 'x-wallet-id',
-            in: 'header',
-            description: 'Define the key of the corresponding wallet it will be executed the request.',
-            required: true,
-            schema: {
-              type: 'string',
-            },
-          }
+          { $ref: '#/components/parameters/XWalletIdParameter' },
         ],
         requestBody: {
           description: 'Extract the input data on the given txHex as an atomic-swap signature.',
@@ -2316,14 +2538,7 @@ const apiDoc = {
                     summary: 'Wallet is not ready yet',
                     value: { success: false, message: 'Wallet is not ready.', state: 1 }
                   },
-                  'no-wallet-id': {
-                    summary: 'No wallet id parameter',
-                    value: { success: false, message: "Parameter 'wallet-id' is required." }
-                  },
-                  'invalid-wallet-id': {
-                    summary: 'Wallet id parameter is invalid',
-                    value: { success: false, message: 'Invalid wallet-id parameter.' }
-                  },
+                  ...commonExamples.xWalletIdErrResponseExamples,
                 },
               },
             },
@@ -2333,17 +2548,10 @@ const apiDoc = {
     },
     '/wallet/send-tx': {
       post: {
+        operationId: 'sendTx',
         summary: 'Send a transaction with many outputs.',
         parameters: [
-          {
-            name: 'x-wallet-id',
-            in: 'header',
-            description: 'Define the key of the corresponding wallet it will be executed the request.',
-            required: true,
-            schema: {
-              type: 'string',
-            },
-          }
+          { $ref: '#/components/parameters/XWalletIdParameter' },
         ],
         requestBody: {
           description: 'Data to create the transaction',
@@ -2378,6 +2586,10 @@ const apiDoc = {
                         data: {
                           type: 'string',
                           description: 'Data string of the data script output. Required if it\'s a data script output.'
+                        },
+                        timelock: {
+                          type: 'integer',
+                          description: 'Timelock value for the output. Used only for P2PKH or P2SH.'
                         },
                       }
                     },
@@ -2424,7 +2636,7 @@ const apiDoc = {
                     },
                     description: 'Inputs to create the transaction.'
                   },
-                  'token [DEPRECATED]': {
+                  token: {
                     type: 'object',
                     required: ['uid', 'name', 'symbol'],
                     description: '[DEPRECATED] Token to send the transaction, just in case is not HTR. This parameter is old and will be deprecated soon, you must preferably use the token parameter in the output object.',
@@ -2441,7 +2653,8 @@ const apiDoc = {
                         type: 'string',
                         description: 'Symbol of the custom token to send the transaction.'
                       },
-                    }
+                    },
+                    deprecated: true,
                   },
                   change_address: {
                     type: 'string',
@@ -2528,14 +2741,7 @@ const apiDoc = {
                     summary: 'Wallet is not ready yet',
                     value: { success: false, message: 'Wallet is not ready.', state: 1 }
                   },
-                  'no-wallet-id': {
-                    summary: 'No wallet id parameter',
-                    value: { success: false, message: "Parameter 'wallet-id' is required." }
-                  },
-                  'invalid-wallet-id': {
-                    summary: 'Wallet id parameter is invalid',
-                    value: { success: false, message: 'Invalid wallet-id parameter.' }
-                  },
+                  ...commonExamples.xWalletIdErrResponseExamples,
                 },
               },
             },
@@ -2545,17 +2751,10 @@ const apiDoc = {
     },
     '/wallet/create-token': {
       post: {
+        operationId: 'createToken',
         summary: 'Create a token.',
         parameters: [
-          {
-            name: 'x-wallet-id',
-            in: 'header',
-            description: 'Define the key of the corresponding wallet it will be executed the request.',
-            required: true,
-            schema: {
-              type: 'string',
-            },
-          }
+          { $ref: '#/components/parameters/XWalletIdParameter' },
         ],
         requestBody: {
           description: 'Data to create the token.',
@@ -2610,6 +2809,13 @@ const apiDoc = {
                     type: 'boolean',
                     description: 'If the melt authority address is allowed to be from another wallet. Default is false.'
                   },
+                  data: {
+                    type: 'array',
+                    items: {
+                      type: 'string'
+                    },
+                    description: 'List of utf-8 encoded strings to create a data output for each.'
+                  }
                 }
               },
               examples: {
@@ -2643,14 +2849,7 @@ const apiDoc = {
                     summary: 'Wallet is not ready yet',
                     value: { success: false, message: 'Wallet is not ready.', state: 1 }
                   },
-                  'no-wallet-id': {
-                    summary: 'No wallet id parameter',
-                    value: { success: false, message: "Parameter 'wallet-id' is required." }
-                  },
-                  'invalid-wallet-id': {
-                    summary: 'Wallet id parameter is invalid',
-                    value: { success: false, message: 'Invalid wallet-id parameter.' }
-                  },
+                  ...commonExamples.xWalletIdErrResponseExamples,
                 },
               },
             },
@@ -2660,17 +2859,10 @@ const apiDoc = {
     },
     '/wallet/mint-tokens': {
       post: {
+        operationId: 'mintTokens',
         summary: 'Mint tokens.',
         parameters: [
-          {
-            name: 'x-wallet-id',
-            in: 'header',
-            description: 'Define the key of the corresponding wallet it will be executed the request.',
-            required: true,
-            schema: {
-              type: 'string',
-            },
-          }
+          { $ref: '#/components/parameters/XWalletIdParameter' },
         ],
         requestBody: {
           description: 'Data to mint tokens.',
@@ -2738,14 +2930,7 @@ const apiDoc = {
                     summary: 'Wallet is not ready yet',
                     value: { success: false, message: 'Wallet is not ready.', state: 1 }
                   },
-                  'no-wallet-id': {
-                    summary: 'No wallet id parameter',
-                    value: { success: false, message: "Parameter 'wallet-id' is required." }
-                  },
-                  'invalid-wallet-id': {
-                    summary: 'Wallet id parameter is invalid',
-                    value: { success: false, message: 'Invalid wallet-id parameter.' }
-                  },
+                  ...commonExamples.xWalletIdErrResponseExamples,
                 },
               },
             },
@@ -2755,17 +2940,10 @@ const apiDoc = {
     },
     '/wallet/melt-tokens': {
       post: {
+        operationId: 'meltTokens',
         summary: 'Melt tokens.',
         parameters: [
-          {
-            name: 'x-wallet-id',
-            in: 'header',
-            description: 'Define the key of the corresponding wallet it will be executed the request.',
-            required: true,
-            schema: {
-              type: 'string',
-            },
-          },
+          { $ref: '#/components/parameters/XWalletIdParameter' },
         ],
         requestBody: {
           description: 'Data to melt tokens.',
@@ -2832,14 +3010,7 @@ const apiDoc = {
                     summary: 'Wallet is not ready yet',
                     value: { success: false, message: 'Wallet is not ready.', state: 1 }
                   },
-                  'no-wallet-id': {
-                    summary: 'No wallet id parameter',
-                    value: { success: false, message: "Parameter 'wallet-id' is required." }
-                  },
-                  'invalid-wallet-id': {
-                    summary: 'Wallet id parameter is invalid',
-                    value: { success: false, message: 'Invalid wallet-id parameter.' }
-                  },
+                  ...commonExamples.xWalletIdErrResponseExamples,
                 },
               },
             },
@@ -2849,17 +3020,10 @@ const apiDoc = {
     },
     '/wallet/create-nft': {
       post: {
+        operationId: 'createNFT',
         summary: 'Create an NFT.',
         parameters: [
-          {
-            name: 'x-wallet-id',
-            in: 'header',
-            description: 'Define the key of the corresponding wallet it will be executed the request.',
-            required: true,
-            schema: {
-              type: 'string',
-            },
-          }
+          { $ref: '#/components/parameters/XWalletIdParameter' },
         ],
         requestBody: {
           description: 'Data to create the token.',
@@ -2952,14 +3116,7 @@ const apiDoc = {
                     summary: 'Wallet is not ready yet',
                     value: { success: false, message: 'Wallet is not ready.', state: 1 }
                   },
-                  'no-wallet-id': {
-                    summary: 'No wallet id parameter',
-                    value: { success: false, message: "Parameter 'wallet-id' is required." }
-                  },
-                  'invalid-wallet-id': {
-                    summary: 'Wallet id parameter is invalid',
-                    value: { success: false, message: 'Invalid wallet-id parameter.' }
-                  },
+                  ...commonExamples.xWalletIdErrResponseExamples,
                 },
               },
             },
@@ -2969,17 +3126,10 @@ const apiDoc = {
     },
     '/wallet/transaction': {
       get: {
+        operationId: 'getTransaction',
         summary: 'Return the data of a transaction, if it exists in the wallet',
         parameters: [
-          {
-            name: 'x-wallet-id',
-            in: 'header',
-            description: 'Define the key of the corresponding wallet it will be executed the request.',
-            required: true,
-            schema: {
-              type: 'string',
-            },
-          },
+          { $ref: '#/components/parameters/XWalletIdParameter' },
           {
             name: 'id',
             in: 'query',
@@ -3004,14 +3154,7 @@ const apiDoc = {
                     summary: 'Wallet is not ready yet',
                     value: { success: false, message: 'Wallet is not ready.', state: 1 }
                   },
-                  'no-wallet-id': {
-                    summary: 'No wallet id parameter',
-                    value: { success: false, message: "Parameter 'wallet-id' is required." }
-                  },
-                  'invalid-wallet-id': {
-                    summary: 'Wallet id parameter is invalid',
-                    value: { success: false, message: 'Invalid wallet-id parameter.' }
-                  },
+                  ...commonExamples.xWalletIdErrResponseExamples,
                 },
               },
             },
@@ -3021,17 +3164,10 @@ const apiDoc = {
     },
     '/wallet/tx-confirmation-blocks': {
       get: {
+        operationId: 'getTxConfirmationBlocks',
         summary: 'Return the number of blocks confirming the transaction, if it exists in the wallet',
         parameters: [
-          {
-            name: 'x-wallet-id',
-            in: 'header',
-            description: 'Define the key of the corresponding wallet it will be executed the request.',
-            required: true,
-            schema: {
-              type: 'string',
-            },
-          },
+          { $ref: '#/components/parameters/XWalletIdParameter' },
           {
             name: 'id',
             in: 'query',
@@ -3056,18 +3192,11 @@ const apiDoc = {
                     summary: 'Wallet is not ready yet',
                     value: { success: false, message: 'Wallet is not ready.', state: 1 }
                   },
-                  'no-wallet-id': {
-                    summary: 'No wallet id parameter',
-                    value: { success: false, message: "Parameter 'wallet-id' is required." }
-                  },
-                  'invalid-wallet-id': {
-                    summary: 'Wallet id parameter is invalid',
-                    value: { success: false, message: 'Invalid wallet-id parameter.' }
-                  },
                   'tx-does-not-belong-to-wallet': {
                     summary: 'Wallet does not have transaction requested.',
                     value: { success: false, error: 'Wallet does not contain transaction with id <TX_ID>' }
                   },
+                  ...commonExamples.xWalletIdErrResponseExamples,
                 },
               },
             },
@@ -3077,17 +3206,10 @@ const apiDoc = {
     },
     '/wallet/tx-history': {
       get: {
+        operationId: 'getTxHistory',
         summary: 'Return the transaction history',
         parameters: [
-          {
-            name: 'x-wallet-id',
-            in: 'header',
-            description: 'Define the key of the corresponding wallet it will be executed the request.',
-            required: true,
-            schema: {
-              type: 'string',
-            },
-          },
+          { $ref: '#/components/parameters/XWalletIdParameter' },
           {
             name: 'limit',
             in: 'query',
@@ -3112,14 +3234,7 @@ const apiDoc = {
                     summary: 'Wallet is not ready yet',
                     value: { success: false, message: 'Wallet is not ready.', state: 1 }
                   },
-                  'no-wallet-id': {
-                    summary: 'No wallet id parameter',
-                    value: { success: false, message: "Parameter 'wallet-id' is required." }
-                  },
-                  'invalid-wallet-id': {
-                    summary: 'Wallet id parameter is invalid',
-                    value: { success: false, message: 'Invalid wallet-id parameter.' }
-                  },
+                  ...commonExamples.xWalletIdErrResponseExamples,
                 },
               },
             },
@@ -3129,17 +3244,10 @@ const apiDoc = {
     },
     '/wallet/stop': {
       post: {
+        operationId: 'stopWallet',
         summary: 'Stop a running wallet and remove from store.',
         parameters: [
-          {
-            name: 'x-wallet-id',
-            in: 'header',
-            description: 'Define the key of the corresponding wallet it will be executed the request.',
-            required: true,
-            schema: {
-              type: 'string',
-            },
-          },
+          { $ref: '#/components/parameters/XWalletIdParameter' },
         ],
         responses: {
           200: {
@@ -3155,14 +3263,7 @@ const apiDoc = {
                     summary: 'Wallet is not ready yet',
                     value: { success: false, message: 'Wallet is not ready.', state: 1 }
                   },
-                  'no-wallet-id': {
-                    summary: 'No wallet id parameter',
-                    value: { success: false, message: "Parameter 'wallet-id' is required." }
-                  },
-                  'invalid-wallet-id': {
-                    summary: 'Wallet id parameter is invalid',
-                    value: { success: false, message: 'Invalid wallet-id parameter.' }
-                  },
+                  ...commonExamples.xWalletIdErrResponseExamples,
                 },
               },
             },
@@ -3172,17 +3273,10 @@ const apiDoc = {
     },
     '/wallet/utxo-filter': {
       get: {
+        operationId: 'getUtxosFiltered',
         summary: 'Return utxos and some helpful information regarding it.',
         parameters: [
-          {
-            name: 'x-wallet-id',
-            in: 'header',
-            description: 'Define the key of the corresponding wallet it will be executed the request.',
-            required: true,
-            schema: {
-              type: 'string',
-            },
-          },
+          { $ref: '#/components/parameters/XWalletIdParameter' },
           {
             name: 'max_utxos',
             in: 'query',
@@ -3240,8 +3334,7 @@ const apiDoc = {
           {
             name: 'only_available_utxos',
             in: 'query',
-            description: 'Get only available utxos, ignoring locked ones.',
-            default: false,
+            description: 'Get only available utxos, ignoring locked ones. Defaults to false.',
             required: false,
             schema: {
               type: 'boolean',
@@ -3262,18 +3355,11 @@ const apiDoc = {
                     summary: 'Wallet is not ready yet',
                     value: { success: false, message: 'Wallet is not ready.', state: 1 }
                   },
-                  'no-wallet-id': {
-                    summary: 'No wallet id parameter',
-                    value: { success: false, message: "Parameter 'wallet-id' is required." }
-                  },
-                  'invalid-wallet-id': {
-                    summary: 'Wallet id parameter is invalid',
-                    value: { success: false, message: 'Invalid wallet-id parameter.' }
-                  },
                   'invalid-parameter': {
                     summary: 'Invalid parameter',
                     value: { success: false, error: [{ value: '"1"', msg: 'Invalid value', param: 'max_utxos', location: 'query' }] }
-                  }
+                  },
+                  ...commonExamples.xWalletIdErrResponseExamples,
                 },
               },
             },
@@ -3283,17 +3369,10 @@ const apiDoc = {
     },
     '/wallet/utxo-consolidation': {
       post: {
+        operationId: 'consolidateUtxos',
         summary: 'Consolidates utxos to a given address.',
         parameters: [
-          {
-            name: 'x-wallet-id',
-            in: 'header',
-            description: 'Define the key of the corresponding wallet it will be executed the request.',
-            required: true,
-            schema: {
-              type: 'string',
-            },
-          },
+          { $ref: '#/components/parameters/XWalletIdParameter' },
         ],
         requestBody: {
           description: 'Data to consolidate utxos.',
@@ -3359,14 +3438,6 @@ const apiDoc = {
                     summary: 'Wallet is not ready yet',
                     value: { success: false, message: 'Wallet is not ready.', state: 1 }
                   },
-                  'no-wallet-id': {
-                    summary: 'No wallet id parameter',
-                    value: { success: false, message: "Parameter 'wallet-id' is required." }
-                  },
-                  'invalid-wallet-id': {
-                    summary: 'Wallet id parameter is invalid',
-                    value: { success: false, message: 'Invalid wallet-id parameter.' }
-                  },
                   'no-available-utxos': {
                     summary: 'No available utxo to consolidate. Check /wallet/utxo-details for available utxos.',
                     value: { success: false, error: 'No available utxo to consolidate.' }
@@ -3374,7 +3445,8 @@ const apiDoc = {
                   'invalid-parameter': {
                     summary: 'Invalid parameter',
                     value: { success: false, error: [{ msg: 'Invalid value', param: 'destination_address', location: 'body' }] }
-                  }
+                  },
+                  ...commonExamples.xWalletIdErrResponseExamples,
                 },
               },
             },
@@ -3384,17 +3456,10 @@ const apiDoc = {
     },
     '/wallet/address-info': {
       get: {
+        operationId: 'getAddressInfo',
         summary: 'Get information of a given address.',
         parameters: [
-          {
-            name: 'x-wallet-id',
-            in: 'header',
-            description: 'Define the key of the corresponding wallet it will be executed the request.',
-            required: true,
-            schema: {
-              type: 'string',
-            },
-          },
+          { $ref: '#/components/parameters/XWalletIdParameter' },
           {
             name: 'address',
             in: 'query',
@@ -3428,6 +3493,489 @@ const apiDoc = {
                     summary: 'Wallet is not ready yet',
                     value: { success: false, message: 'Wallet is not ready.', state: 1 }
                   },
+                  'invalid-parameter': {
+                    summary: 'Invalid parameter',
+                    value: { success: false, error: [{ value: '"1"', msg: 'Invalid value', param: 'address', location: 'query' }] }
+                  },
+                  ...commonExamples.xWalletIdErrResponseExamples,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    '/wallet/nano-contracts/state': {
+      get: {
+        operationId: 'nanoState',
+        summary: 'Get state of a nano contract.',
+        parameters: [
+          {
+            name: 'x-wallet-id',
+            in: 'header',
+            description: 'Define the key of the corresponding wallet it will be executed the request.',
+            required: true,
+            schema: {
+              type: 'string',
+            },
+          },
+          {
+            name: 'id',
+            in: 'query',
+            description: 'ID of the nano contract to get the state from.',
+            required: true,
+            schema: {
+              type: 'string',
+            },
+          },
+          {
+            name: 'fields[]',
+            in: 'query',
+            description: 'List of fields to retrieve the state.',
+            required: false,
+            schema: {
+              type: 'array',
+              items: {
+                type: 'string',
+              }
+            },
+            examples: {
+              'simple fields': {
+                summary: 'Only direct fields',
+                value: ['token_uid', 'total', 'final_result', 'oracle_script']
+              },
+              'With dict fields': {
+                summary: 'Simple and dict fields (dict fields where the keys are addresses). For an address you must encapsulate the b58 with a\'\'',
+                value: [
+                  'token_uid',
+                  'total',
+                  'final_result',
+                  'oracle_script',
+                  'withdrawals.a\'Wi8zvxdXHjaUVAoCJf52t3WovTZYcU9aX6\'',
+                  'address_details.a\'Wi8zvxdXHjaUVAoCJf52t3WovTZYcU9aX6\''
+                ]
+              },
+            }
+          },
+          {
+            name: 'balances[]',
+            in: 'query',
+            description: 'List of balances to retrieve from contract.',
+            required: false,
+            schema: {
+              type: 'array',
+              items: {
+                type: 'string',
+              }
+            },
+            examples: {
+              balances: {
+                summary: 'Example of balances',
+                value: ['00', '000008f2ee2059a189322ae7cb1d7e7773dcb4fdc8c4de8767f63022b3731845']
+              },
+            }
+          },
+          {
+            name: 'calls[]',
+            in: 'query',
+            description: 'List of private method calls to execute and get result in the contract.',
+            required: false,
+            schema: {
+              type: 'array',
+              items: {
+                type: 'string',
+              }
+            },
+            examples: {
+              calls: {
+                summary: 'Example of calls',
+                value: ['private_method_1()', 'private_method_2()']
+              },
+            }
+          },
+        ],
+        responses: {
+          200: {
+            description: 'Success',
+            content: {
+              'application/json': {
+                examples: {
+                  success: {
+                    summary: 'Success to get state from nano',
+                    value: {
+                      success: true,
+                      nc_id: '3cb032600bdf7db784800e4ea911b10676fa2f67591f82bb62628c234e771595',
+                      blueprint_name: 'Bet',
+                      fields: {
+                        token_uid: { value: '00' },
+                        total: { value: 300 },
+                        final_result: { value: '1x0' },
+                        oracle_script: { value: '76a91441c431ff7ad5d6ce5565991e3dcd5d9106cfd1e288ac' },
+                        'withdrawals.a\'Wi8zvxdXHjaUVAoCJf52t3WovTZYcU9aX6\'': { value: 300 },
+                        'address_details.a\'Wi8zvxdXHjaUVAoCJf52t3WovTZYcU9aX6\'': { value: { '1x0': 100 } },
+                      }
+                    }
+                  },
+                  error: {
+                    summary: 'Invalid nano contract ID',
+                    value: {
+                      success: false,
+                      message: 'Invalid nano contract ID.'
+                    }
+                  },
+                }
+              }
+            }
+          }
+        },
+      },
+    },
+    '/wallet/nano-contracts/history': {
+      get: {
+        operationId: 'nanoHistory',
+        summary: 'Get the history of a nano contract.',
+        parameters: [
+          {
+            name: 'x-wallet-id',
+            in: 'header',
+            description: 'Define the key of the corresponding wallet it will be executed the request.',
+            required: true,
+            schema: {
+              type: 'string',
+            },
+          },
+          {
+            name: 'id',
+            in: 'query',
+            description: 'ID of the nano contract to get the history from.',
+            required: true,
+            schema: {
+              type: 'string',
+            },
+          },
+          {
+            name: 'count',
+            in: 'query',
+            description: 'Maximum number of items to be returned. Default is 100.',
+            required: false,
+            schema: {
+              type: 'integer',
+            },
+          },
+          {
+            name: 'after',
+            in: 'query',
+            description: 'Hash of transaction to offset the result.',
+            required: false,
+            schema: {
+              type: 'string',
+            },
+          },
+        ],
+        responses: {
+          200: {
+            description: 'Success',
+            content: {
+              'application/json': {
+                examples: {
+                  success: {
+                    summary: 'History of a nano contract',
+                    value: {
+                      success: true,
+                      count: 100,
+                      history: {
+                        hash: '5c02adea056d7b43e83171a0e2d226d564c791d583b32e9a404ef53a2e1b363a',
+                        nonce: 0,
+                        timestamp: 1572636346,
+                        version: 4,
+                        weight: 1,
+                        signal_bits: 0,
+                        parents: ['1234', '5678'],
+                        inputs: [],
+                        outputs: [],
+                        metadata: {
+                          hash: '5c02adea056d7b43e83171a0e2d226d564c791d583b32e9a404ef53a2e1b363a',
+                          spent_outputs: [],
+                          received_by: [],
+                          children: [],
+                          conflict_with: [],
+                          voided_by: [],
+                          twins: [],
+                          accumulated_weight: 1,
+                          score: 0,
+                          height: 0,
+                          min_height: 0,
+                          feature_activation_bit_counts: null,
+                          first_block: null,
+                          validation: 'full'
+                        },
+                        tokens: [],
+                        nc_id: '5c02adea056d7b43e83171a0e2d226d564c791d583b32e9a404ef53a2e1b363a',
+                        nc_method: 'initialize',
+                        nc_args: '0004313233340001000004654d8749',
+                        nc_pubkey: '033f5d238afaa9e2218d05dd7fa50eb6f9e55431e6359e04b861cd991ae24dc655'
+                      }
+                    }
+                  },
+                  error: {
+                    summary: 'Nano contract history index not initialized.',
+                    value: {
+                      success: false,
+                      message: 'Nano contract history index not initialized.'
+                    }
+                  },
+                }
+              }
+            }
+          }
+        },
+      },
+    },
+    '/wallet/nano-contracts/oracle-data': {
+      get: {
+        operationId: 'nanoOracleData',
+        summary: 'Get the oracle data.',
+        parameters: [
+          {
+            name: 'x-wallet-id',
+            in: 'header',
+            description: 'Define the key of the corresponding wallet it will be executed the request.',
+            required: true,
+            schema: {
+              type: 'string',
+            },
+          },
+          {
+            name: 'oracle',
+            in: 'query',
+            description: 'The address in base58 that will be used as oracle or the oracle data itself in hex (in this case, it will just be returned the same).',
+            required: true,
+            schema: {
+              type: 'string',
+            },
+          },
+        ],
+        responses: {
+          200: {
+            description: 'Success',
+            content: {
+              'application/json': {
+                examples: {
+                  success: {
+                    summary: 'Get oracle data from an address.',
+                    value: {
+                      success: true,
+                      oracleData: '12345678',
+                    }
+                  },
+                  error: {
+                    summary: 'Invalid oracle string.',
+                    value: {
+                      success: false,
+                      message: 'Invalid hex value for oracle script.'
+                    }
+                  },
+                }
+              }
+            }
+          }
+        },
+      },
+    },
+    '/wallet/nano-contracts/oracle-signed-result': {
+      get: {
+        operationId: 'nanoSignedResult',
+        summary: 'Get the result signed by the oracle. Returns the string of the argument to be used in the method.',
+        parameters: [
+          {
+            name: 'x-wallet-id',
+            in: 'header',
+            description: 'Define the key of the corresponding wallet it will be executed the request.',
+            required: true,
+            schema: {
+              type: 'string',
+            },
+          },
+          {
+            name: 'oracle_data',
+            in: 'query',
+            description: 'The oracle data. If it\'s not an address, we expect the full input data.',
+            required: true,
+            schema: {
+              type: 'string',
+            },
+          },
+          {
+            name: 'result',
+            in: 'query',
+            description: 'The result to be signed. If the type is bytes, then we expect it in hex.',
+            required: true,
+            schema: {
+              oneOf: [
+                {
+                  type: 'string',
+                },
+                {
+                  type: 'integer',
+                },
+                {
+                  type: 'number',
+                },
+                {
+                  type: 'boolean',
+                },
+              ],
+            },
+          },
+          {
+            name: 'type',
+            in: 'query',
+            description: 'The type of the result.',
+            required: true,
+            schema: {
+              type: 'string',
+            },
+          },
+        ],
+        responses: {
+          200: {
+            description: 'Success',
+            content: {
+              'application/json': {
+                examples: {
+                  success: {
+                    summary: 'Get oracle signed result.',
+                    value: {
+                      success: true,
+                      oracleData: '12345678:1x0:str',
+                    }
+                  },
+                  error: {
+                    summary: 'Address used is from another wallet.',
+                    value: {
+                      success: false,
+                      message: 'Oracle address is not from the loaded wallet.'
+                    }
+                  },
+                }
+              }
+            }
+          }
+        },
+      },
+    },
+    '/wallet/nano-contracts/create': {
+      post: {
+        operationId: 'nanoCreate',
+        summary: 'Create a nano contract of a blueprint.',
+        parameters: [
+          {
+            name: 'x-wallet-id',
+            in: 'header',
+            description: 'Define the key of the corresponding wallet it will be executed the request.',
+            required: true,
+            schema: {
+              type: 'string',
+            },
+          }
+        ],
+        requestBody: {
+          description: 'Data to create the nano contract.',
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['blueprint_id', 'address', 'data'],
+                properties: {
+                  blueprint_id: {
+                    type: 'string',
+                    description: 'Blueprint ID of the new nano contract.'
+                  },
+                  address: {
+                    type: 'string',
+                    description: 'Address caller that will sign the nano contract creation transaction.'
+                  },
+                  data: nanoContractsDataParameter,
+                },
+              },
+              examples: {
+                data: {
+                  summary: 'Data to create the nano contract',
+                  value: {
+                    blueprint_id: '1234abcd',
+                    address: 'H8bt9nYhUNJHg7szF32CWWi1eB8PyYZnbt',
+                    data: {
+                      args: ['abc', '1234abcd'],
+                      actions: [
+                        {
+                          type: 'deposit',
+                          token: '00',
+                          amount: 100,
+                        },
+                        {
+                          type: 'withdrawal',
+                          token: '00',
+                          amount: 100,
+                          address: 'H8bt9nYhUNJHg7szF32CWWi1eB8PyYZnbt'
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          200: {
+            description: 'Create the nano contract',
+            content: {
+              'application/json': {
+                examples: {
+                  success: {
+                    summary: 'Success',
+                    value: {
+                      success: true,
+                      count: 100,
+                      history: {
+                        hash: '5c02adea056d7b43e83171a0e2d226d564c791d583b32e9a404ef53a2e1b363a',
+                        nonce: 0,
+                        timestamp: 1572636346,
+                        version: 4,
+                        weight: 1,
+                        signal_bits: 0,
+                        parents: ['1234', '5678'],
+                        inputs: [],
+                        outputs: [],
+                        metadata: {
+                          hash: '5c02adea056d7b43e83171a0e2d226d564c791d583b32e9a404ef53a2e1b363a',
+                          spent_outputs: [],
+                          received_by: [],
+                          children: [],
+                          conflict_with: [],
+                          voided_by: [],
+                          twins: [],
+                          accumulated_weight: 1,
+                          score: 0,
+                          height: 0,
+                          min_height: 0,
+                          feature_activation_bit_counts: null,
+                          first_block: null,
+                          validation: 'full'
+                        },
+                        tokens: [],
+                        nc_id: '5c02adea056d7b43e83171a0e2d226d564c791d583b32e9a404ef53a2e1b363a',
+                        nc_method: 'initialize',
+                        nc_args: '0004313233340001000004654d8749',
+                        nc_pubkey: '033f5d238afaa9e2218d05dd7fa50eb6f9e55431e6359e04b861cd991ae24dc655'
+                      }
+                    }
+                  },
+                  'wallet-not-ready': {
+                    summary: 'Wallet is not ready yet',
+                    value: { success: false, message: 'Wallet is not ready.', state: 1 }
+                  },
                   'no-wallet-id': {
                     summary: 'No wallet id parameter',
                     value: { success: false, message: "Parameter 'wallet-id' is required." }
@@ -3436,10 +3984,138 @@ const apiDoc = {
                     summary: 'Wallet id parameter is invalid',
                     value: { success: false, message: 'Invalid wallet-id parameter.' }
                   },
-                  'invalid-parameter': {
-                    summary: 'Invalid parameter',
-                    value: { success: false, error: [{ value: '"1"', msg: 'Invalid value', param: 'address', location: 'query' }] }
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    '/wallet/nano-contracts/execute': {
+      post: {
+        operationId: 'nanoExecuteMethod',
+        summary: 'Execute a nano contract method.',
+        parameters: [
+          {
+            name: 'x-wallet-id',
+            in: 'header',
+            description: 'Define the key of the corresponding wallet it will be executed the request.',
+            required: true,
+            schema: {
+              type: 'string',
+            },
+          }
+        ],
+        requestBody: {
+          description: 'Data to execute the nano contract method.',
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['nc_id', 'method', 'address', 'data'],
+                properties: {
+                  nc_id: {
+                    type: 'string',
+                    description: 'ID of the nano contract that will have the method executed.'
+                  },
+                  method: {
+                    type: 'string',
+                    description: 'Method to execute in the nano contract object.'
+                  },
+                  address: {
+                    type: 'string',
+                    description: 'Address caller that will sign the nano contract transaction.'
+                  },
+                  data: nanoContractsDataParameter,
+                }
+              },
+              examples: {
+                data: {
+                  summary: 'Data to execute the nano contract method',
+                  value: {
+                    nc_id: '1234abcd',
+                    method: 'method_name',
+                    address: 'H8bt9nYhUNJHg7szF32CWWi1eB8PyYZnbt',
+                    data: {
+                      args: ['abc', '1234abcd'],
+                      actions: [
+                        {
+                          type: 'deposit',
+                          token: '00',
+                          amount: 100,
+                        },
+                        {
+                          type: 'withdrawal',
+                          token: '00',
+                          amount: 100,
+                          address: 'H8bt9nYhUNJHg7szF32CWWi1eB8PyYZnbt'
+                        }
+                      ]
+                    }
                   }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          200: {
+            description: 'Transaction for the nano contract method.',
+            content: {
+              'application/json': {
+                examples: {
+                  success: {
+                    summary: 'Success',
+                    value: {
+                      success: true,
+                      count: 100,
+                      history: {
+                        hash: '5c02adea056d7b43e83171a0e2d226d564c791d583b32e9a404ef53a2e1b363a',
+                        nonce: 0,
+                        timestamp: 1572636346,
+                        version: 4,
+                        weight: 1,
+                        signal_bits: 0,
+                        parents: ['1234', '5678'],
+                        inputs: [],
+                        outputs: [],
+                        metadata: {
+                          hash: '5c02adea056d7b43e83171a0e2d226d564c791d583b32e9a404ef53a2e1b363a',
+                          spent_outputs: [],
+                          received_by: [],
+                          children: [],
+                          conflict_with: [],
+                          voided_by: [],
+                          twins: [],
+                          accumulated_weight: 1,
+                          score: 0,
+                          height: 0,
+                          min_height: 0,
+                          feature_activation_bit_counts: null,
+                          first_block: null,
+                          validation: 'full'
+                        },
+                        tokens: [],
+                        nc_id: '5c02adea056d7b43e83171a0e2d226d564c791d583b32e9a404ef53a2e1b363a',
+                        nc_method: 'method_name',
+                        nc_args: '0004313233340001000004654d8749',
+                        nc_pubkey: '033f5d238afaa9e2218d05dd7fa50eb6f9e55431e6359e04b861cd991ae24dc655'
+                      }
+                    }
+                  },
+                  'wallet-not-ready': {
+                    summary: 'Wallet is not ready yet',
+                    value: { success: false, message: 'Wallet is not ready.', state: 1 }
+                  },
+                  'no-wallet-id': {
+                    summary: 'No wallet id parameter',
+                    value: { success: false, message: "Parameter 'wallet-id' is required." }
+                  },
+                  'invalid-wallet-id': {
+                    summary: 'Wallet id parameter is invalid',
+                    value: { success: false, message: 'Invalid wallet-id parameter.' }
+                  },
                 },
               },
             },
@@ -3449,6 +4125,7 @@ const apiDoc = {
     },
     '/configuration-string': {
       get: {
+        operationId: 'getTokenConfigurationString',
         summary: 'Get configuration string of a token.',
         parameters: [
           {
@@ -3482,7 +4159,357 @@ const apiDoc = {
         },
       },
     },
+    '/reload-config': {
+      post: {
+        operationId: 'reloadConfig',
+        summary: 'Reload configuration of the wallet.',
+        responses: {
+          200: {
+            description: 'A JSON with the indication of success or error.',
+            content: {
+              'application/json': {
+                examples: {
+                  success: {
+                    summary: 'Success',
+                    value: { success: true },
+                  },
+                  'Non-recoverable config change': {
+                    summary: 'The running app cannot successfully recover from this change.',
+                    value: { success: false, error: 'A non recoverable change in the config was made, the service will shutdown.' }
+                  }
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    '/health': {
+      get: {
+        operationId: 'healthCheck',
+        summary: 'Return the health of the wallet headless.',
+        parameters: [
+          {
+            name: 'wallet_ids',
+            in: 'query',
+            description: 'Wallet ids to check, comma-separated. If not provided, will not check any wallet.',
+            required: false,
+            schema: {
+              type: 'string',
+            },
+          },
+          {
+            name: 'include_fullnode',
+            in: 'query',
+            description: 'Whether fullnode health should be checked and included in the response.',
+            required: false,
+            schema: {
+              type: 'boolean',
+            },
+          },
+          {
+            name: 'include_tx_mining',
+            in: 'query',
+            description: 'Whether tx mining service health should be checked and included in the response.',
+            required: false,
+            schema: {
+              type: 'boolean',
+            },
+          }
+        ],
+        responses: {
+          200: {
+            description: 'A JSON with the health object. It will contain info about all components that were enabled and provided wallet ids.',
+            content: {
+              'application/json': {
+                examples: {
+                  success: {
+                    summary: 'Success',
+                    value: {
+                      status: 'pass',
+                      description: 'Wallet-headless health',
+                      checks: {
+                        'Wallet <wallet-id>': [{
+                          status: 'pass',
+                          componentType: 'internal',
+                          componentName: 'Wallet <wallet-id>',
+                          output: 'Wallet is ready',
+                        }],
+                        'Wallet <wallet-id-2>': [{
+                          status: 'pass',
+                          componentType: 'internal',
+                          componentName: 'Wallet <wallet-id-2>',
+                          output: 'Wallet is ready',
+                        }],
+                        fullnode: [{
+                          status: 'pass',
+                          componentType: 'fullnode',
+                          componentName: 'Fullnode <fullnode_url>',
+                          output: 'Fullnode is responding',
+                        }],
+                        txMining: [{
+                          status: 'pass',
+                          componentType: 'service',
+                          componentName: 'TxMiningService <tx_mining_url>',
+                          output: 'Tx Mining Service is healthy',
+                        }]
+                      }
+                    },
+                  },
+                },
+              },
+            },
+          },
+          400: {
+            description: 'A JSON object with the reason for the error.',
+            content: {
+              'application/json': {
+                examples: {
+                  'invalid-wallet-ids': {
+                    summary: 'Invalid wallet id',
+                    value: { success: false, message: 'Invalid wallet id parameter.' }
+                  },
+                  'no-component-included': {
+                    summary: 'No component was included in the request',
+                    value: { success: false, message: 'At least one component must be included in the health check' }
+                  },
+                },
+              },
+            },
+          },
+          503: {
+            description: 'A JSON with the health object. It will contain info about all components that were checked.',
+            content: {
+              'application/json': {
+                examples: {
+                  unhealthy: {
+                    summary: 'Unhealthy wallet headless',
+                    value: {
+                      status: 'fail',
+                      description: 'Wallet-headless health',
+                      checks: {
+                        'Wallet <wallet-id>': [{
+                          status: 'pass',
+                          componentType: 'internal',
+                          componentName: 'Wallet <wallet-id>',
+                          output: 'Wallet is ready',
+                        }],
+                        'Wallet <wallet-id-2>': [{
+                          status: 'pass',
+                          componentType: 'internal',
+                          componentName: 'Wallet <wallet-id-2>',
+                          output: 'Wallet is ready',
+                        }],
+                        fullnode: [{
+                          status: 'fail',
+                          componentType: 'fullnode',
+                          componentName: 'Fullnode <fullnode_url>',
+                          output: 'Fullnode reported as unhealthy: <fullnode response>',
+                        }],
+                        txMining: [{
+                          status: 'pass',
+                          componentType: 'service',
+                          componentName: 'TxMiningService <tx_mining_url>',
+                          output: 'Tx Mining Service is healthy',
+                        }]
+                      }
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    '/wallet/config/last-loaded-address-index': {
+      get: {
+        operationId: 'getLastLoadedAddressIndex',
+        summary: 'Get the last loaded address index of a wallet.',
+        parameters: [
+          { $ref: '#/components/parameters/XWalletIdParameter' },
+        ],
+        responses: {
+          200: {
+            description: 'Last address index loaded or handled error',
+            content: {
+              'application/json': {
+                examples: {
+                  success: {
+                    summary: 'Success',
+                    value: { success: true, index: 74 },
+                  },
+                  'wallet-not-ready': {
+                    summary: 'Wallet is not ready yet',
+                    value: { success: false, message: 'Wallet is not ready.', state: 1 }
+                  },
+                  'invalid-parameter': {
+                    summary: 'Invalid parameter',
+                    value: { success: false, error: [{ value: '"1"', msg: 'Invalid value', param: 'address', location: 'query' }] }
+                  },
+                  ...commonExamples.xWalletIdErrResponseExamples,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    '/wallet/config/index-limit/load-more-addresses': {
+      post: {
+        operationId: 'indexLimitloadMoreAddresses',
+        summary: 'Load more addresses by pushing the end index of a wallet configured to index-limit scanning policy.',
+        parameters: [
+          { $ref: '#/components/parameters/XWalletIdParameter' },
+        ],
+        requestBody: {
+          description: 'Count of addresses to load.',
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['count'],
+                properties: {
+                  count: {
+                    type: 'integer',
+                    description: 'Count of addresses to load.',
+                  },
+                }
+              },
+              examples: {
+                data: {
+                  summary: 'Load 10 more addresses.',
+                  value: {
+                    count: 10,
+                  }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          200: {
+            description: 'Success confirmation or handled error',
+            content: {
+              'application/json': {
+                examples: {
+                  success: {
+                    summary: 'Success',
+                    value: { success: true },
+                  },
+                  'wallet-not-ready': {
+                    summary: 'Wallet is not ready yet',
+                    value: { success: false, message: 'Wallet is not ready.', state: 1 }
+                  },
+                  'invalid-parameter': {
+                    summary: 'Invalid parameter',
+                    value: { success: false, error: [{ value: '"1"', msg: 'Invalid value', param: 'address', location: 'query' }] }
+                  },
+                  ...commonExamples.xWalletIdErrResponseExamples,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    '/wallet/config/index-limit/last-index': {
+      post: {
+        operationId: 'indexLimitSetLastIndex',
+        summary: 'Set the last address index of a wallet configured to index-limit scanning policy.',
+        parameters: [
+          { $ref: '#/components/parameters/XWalletIdParameter' },
+        ],
+        requestBody: {
+          description: 'Set the last loaded index on a wallet configured to index-limit scanning policy.',
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['index'],
+                properties: {
+                  index: {
+                    type: 'integer',
+                    description: 'Last address index to set.',
+                  },
+                }
+              },
+              examples: {
+                data: {
+                  summary: 'Load all addresses up to 150.',
+                  value: {
+                    index: 150,
+                  }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          200: {
+            description: 'Success confirmation or handled error',
+            content: {
+              'application/json': {
+                examples: {
+                  success: {
+                    summary: 'Success',
+                    value: { success: true },
+                  },
+                  'wallet-not-ready': {
+                    summary: 'Wallet is not ready yet',
+                    value: { success: false, message: 'Wallet is not ready.', state: 1 }
+                  },
+                  'invalid-parameter': {
+                    summary: 'Invalid parameter',
+                    value: { success: false, error: [{ value: '"1"', msg: 'Invalid value', param: 'address', location: 'query' }] }
+                  },
+                  ...commonExamples.xWalletIdErrResponseExamples,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
   },
 };
 
-export default apiDoc;
+/**
+ * Generates the Api Docs according to the current configurations of the Headless Wallet
+ */
+function getApiDocs() {
+  // Obtaining base data
+  const config = settings.getConfig();
+  const apiDocs = cloneDeep(defaultApiDocs);
+
+  // Adding optional API Key docs
+  if (config.http_api_key) {
+    apiDocs.components.securitySchemes = {
+      ApiKeyAuth: {
+        type: 'apiKey',
+        in: 'header',
+        name: 'X-API-KEY',
+      },
+    };
+    apiDocs.security = [
+      {
+        ApiKeyAuth: [],
+      }
+    ];
+  }
+
+  // Binding server address and port, if informed
+  if (config.http_bind_address) {
+    const portStr = config.http_port ? `:${config.http_port}` : '';
+    apiDocs.servers[0].url = `https://${config.http_bind_address}${portStr}`;
+  }
+
+  // Data ready to serve
+  return apiDocs;
+}
+
+module.exports = {
+  getApiDocs
+};

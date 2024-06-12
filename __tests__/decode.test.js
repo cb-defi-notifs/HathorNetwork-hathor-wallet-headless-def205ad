@@ -1,12 +1,16 @@
 import { PartialTx, ProposalInput, ProposalOutput } from '@hathor/wallet-lib/lib/models/partial_tx';
-import { Network, Address, P2PKH } from '@hathor/wallet-lib';
+import { Network, Address, P2PKH, Transaction, Input, Output, HathorWallet } from '@hathor/wallet-lib';
+import httpFixtures from './__fixtures__/http-fixtures';
 import TestUtils from './test-utils';
+import settings from '../src/settings';
 
 const walletId = 'stub_decode';
 
 describe('decode api', () => {
   beforeAll(async () => {
-    global.config.multisig = TestUtils.multisigData;
+    const config = settings.getConfig();
+    config.multisig = TestUtils.multisigData;
+    settings._setConfig(config);
     await TestUtils.startWallet({
       walletId,
       preCalculatedAddresses: TestUtils.multisigAddresses,
@@ -15,7 +19,9 @@ describe('decode api', () => {
   });
 
   afterAll(async () => {
-    global.config.multisig = {};
+    const config = settings.getConfig();
+    config.multisig = {};
+    settings._setConfig(config);
     await TestUtils.stopWallet({ walletId });
   });
 
@@ -84,10 +90,14 @@ describe('decode api', () => {
     const expected = {
       success: true,
       tx: {
+        type: 'Transaction',
+        version: 1,
+        completeSignatures: false,
         tokens: [],
         inputs: [],
         outputs: [],
-      }
+      },
+      balance: {},
     };
 
     let response = await TestUtils.request
@@ -135,7 +145,11 @@ describe('decode api', () => {
     let address = new Address(TestUtils.addresses[0]);
     let script = new P2PKH(address);
     partialTx.outputs.push(
-      new ProposalOutput(10, script.createScript(), { token: fakeToken1, tokenData: 1 })
+      new ProposalOutput(
+        10,
+        script.createScript(),
+        { token: fakeToken1, tokenData: 1 }
+      )
     );
 
     address = new Address(TestUtils.addresses[1]);
@@ -152,6 +166,18 @@ describe('decode api', () => {
       )
     );
 
+    const txHistoryResponse = httpFixtures['/thin_wallet/address_history'];
+    const txHistory = txHistoryResponse.history;
+    const fakeTx = txHistory[0];
+    const fakeTxResponse = {
+      success: true,
+      tx: fakeTx,
+      meta: {
+        first_block_height: 1234,
+      },
+    };
+    TestUtils.httpMock.onGet('/transaction').reply(200, fakeTxResponse);
+
     // 1 input, 2 outputs
     const response = await TestUtils.request
       .post('/wallet/decode')
@@ -162,24 +188,145 @@ describe('decode api', () => {
     expect(response.body).toEqual({
       success: true,
       tx: expect.objectContaining({
-        tokens: [fakeToken1, fakeToken2],
-        inputs: [{ txId: fakeInputHash, index: 1 }],
+        completeSignatures: false,
+        tokens: expect.arrayContaining([fakeToken1, fakeToken2]),
+        inputs: [
+          {
+            txId: fakeInputHash,
+            index: 1,
+            value: 6400,
+            decoded: {
+              address: 'wgyUgNjqZ18uYr4YfE2ALW6tP5hd8MumH5',
+              type: 'MultiSig',
+              timelock: null,
+            },
+            script: expect.any(String),
+            token: '00',
+            tokenData: 0,
+            token_data: 0,
+            mine: true,
+            signed: false,
+          },
+        ],
         outputs: [
           expect.objectContaining({
             value: 10,
             tokenData: 1,
+            token_data: 1,
             token: fakeToken1,
-            decoded: expect.objectContaining({ address: TestUtils.addresses[0] })
+            decoded: {
+              address: TestUtils.addresses[0],
+              timelock: null,
+            },
+            script: expect.any(String),
+            type: 'p2pkh',
+            mine: false,
           }),
           expect.objectContaining({
             value: 20,
             tokenData: 0,
-            decoded: expect.objectContaining({ address: TestUtils.addresses[1] })
+            token_data: 0,
+            decoded: {
+              address: TestUtils.addresses[1],
+              timelock: null,
+            },
+            script: expect.any(String),
+            token: '00',
+            type: 'p2pkh',
+            mine: false,
           }),
         ],
       }),
+      balance: {
+        '00': {
+          tokens: { available: -6400, locked: 0 },
+          authorities: {
+            melt: { available: 0, locked: 0 },
+            mint: { available: 0, locked: 0 },
+          },
+        },
+      },
     });
 
     spy.mockRestore();
+  });
+
+  it('should fetch the correct token from the tx the inputs are spending', async () => {
+    const txId0 = '5db0a8c77f818c51cb107532fc1a36785adfa700d81d973fd1f23438b2f3dd74';
+    const txId1 = 'fb2fbe0385bc0bc8e9a255a8d530f7b3bdcebcd5ccdae5e154e6c3d57cbcd143';
+    const txId2 = '11835fae291c60fc58314c61d27dc644b9e029c363bbe458039b2b0186144275';
+    const tx = new Transaction(
+      [new Input(txId0, 0), new Input(txId1, 1), new Input(txId2, 2)],
+      [new Output(100, Buffer.from('0463616665ac', 'hex'))],
+      {
+        timestamp: 123,
+        parents: ['f6c83e3641a08ec21aebc01296ff12f5a46780f0fbadb1c8101309123b95d2c6'],
+      },
+    );
+
+    const txHex = tx.toHex();
+
+    const txObj = {
+      tokens: ['token1'],
+      outputs: [
+        {
+          decoded: {
+            type: 'P2PKH',
+            address: 'WPynsVhyU6nP7RSZAkqfijEutC88KgAyFc',
+          },
+          value: 1,
+          token_data: 0,
+          script: 'input0-script',
+        },
+        {
+          decoded: {
+            type: 'P2PKH',
+            address: 'WPynsVhyU6nP7RSZAkqfijEutC88KgAyFc',
+          },
+          value: 1,
+          token_data: 1,
+          script: 'input1-script',
+        },
+        {
+          decoded: {
+            type: 'P2PKH',
+            address: 'WPynsVhyU6nP7RSZAkqfijEutC88KgAyFc',
+          },
+          value: 1,
+          token_data: 2,
+          script: 'input1-script',
+        },
+      ],
+    };
+    const getTxMock = jest.spyOn(HathorWallet.prototype, 'getFullTxById').mockImplementation(async () => ({
+      success: true,
+      tx: txObj,
+    }));
+
+    const response = await TestUtils.request
+      .post('/wallet/decode')
+      .send({ txHex })
+      .set({ 'x-wallet-id': walletId });
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.tx).toBeDefined();
+    // inputs
+    expect(response.body.tx.inputs).toBeDefined();
+    expect(response.body.tx.inputs[0].index).toEqual(0);
+    expect(response.body.tx.inputs[0].txId).toEqual(txId0);
+    expect(response.body.tx.inputs[0].token).toEqual('00');
+    expect(response.body.tx.inputs[1].index).toEqual(1);
+    expect(response.body.tx.inputs[1].txId).toEqual(txId1);
+    expect(response.body.tx.inputs[1].token).toEqual('token1');
+    expect(response.body.tx.inputs[2].index).toEqual(2);
+    expect(response.body.tx.inputs[2].txId).toEqual(txId2);
+    expect(response.body.tx.inputs[2].token).not.toBeDefined();
+    // outputs
+    expect(response.body.tx.outputs).toBeDefined();
+    expect(response.body.tx.outputs.length).toBe(tx.outputs.length);
+    expect(response.body.tx.outputs[0].decoded.address).toBe(tx.outputs[0].address);
+    expect(response.body.tx.outputs[0].value).toBe(100);
+
+    getTxMock.mockRestore();
   });
 });

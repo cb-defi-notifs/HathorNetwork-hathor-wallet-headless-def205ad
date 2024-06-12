@@ -64,7 +64,7 @@ describe('send tx (HTR)', () => {
   // Starting with all the rejection tests, that do not have side-effects
 
   // Invalid inputs
-  it('should reject an invalid address', async done => {
+  it('should reject an invalid address', async () => {
     const response = await TestUtils.request
       .post('/wallet/send-tx')
       .send({
@@ -78,10 +78,9 @@ describe('send tx (HTR)', () => {
     expect(response.status).toBe(200);
     expect(response.body.hash).toBeUndefined();
     expect(response.body.success).toBe(false);
-    done();
   });
 
-  it('should reject an invalid filterAddress input', async done => {
+  it('should reject an invalid filterAddress input', async () => {
     const response = await TestUtils.request
       .post('/wallet/send-tx')
       .send({
@@ -99,10 +98,9 @@ describe('send tx (HTR)', () => {
     expect(response.status).toBe(200);
     expect(response.body.hash).toBeUndefined();
     expect(response.body.success).toBe(false);
-    done();
   });
 
-  it('should reject an invalid change address', async done => {
+  it('should reject an invalid change address', async () => {
     const response = await TestUtils.request
       .post('/wallet/send-tx')
       .send({
@@ -118,10 +116,9 @@ describe('send tx (HTR)', () => {
     expect(response.body.hash).toBeUndefined();
     expect(response.body.success).toBe(false);
     expect(response.body.error).toContain('Change address is not from the wallet');
-    done();
   });
 
-  it('should reject an invalid input', async done => {
+  it('should reject an invalid input', async () => {
     const response = await TestUtils.request
       .post('/wallet/send-tx')
       .send({
@@ -141,10 +138,9 @@ describe('send tx (HTR)', () => {
     expect(response.body.hash).toBeUndefined();
     expect(response.body.success).toBe(false);
     expect(response.body.error).toContain('invalid');
-    done();
   });
 
-  it('should reject an invalid input, even with a correct one', async done => {
+  it('should reject an invalid input, even with a correct one', async () => {
     const response = await TestUtils.request
       .post('/wallet/send-tx')
       .send({
@@ -167,10 +163,9 @@ describe('send tx (HTR)', () => {
     expect(response.body.hash).toBeUndefined();
     expect(response.body.success).toBe(false);
     expect(response.body.error).toContain('invalid');
-    done();
   });
 
-  it('should reject a change address that does not belong to the wallet', async done => {
+  it('should reject a change address that does not belong to the wallet', async () => {
     const response = await TestUtils.request
       .post('/wallet/send-tx')
       .send({
@@ -186,10 +181,9 @@ describe('send tx (HTR)', () => {
     expect(response.body.hash).toBeUndefined();
     expect(response.body.success).toBe(false);
     expect(response.body.error).toContain('Change address is not from the wallet');
-    done();
   });
 
-  it('should reject an invalid value', async done => {
+  it('should reject an invalid value', async () => {
     const response = await TestUtils.request
       .post('/wallet/send-tx')
       .send({
@@ -205,10 +199,9 @@ describe('send tx (HTR)', () => {
     expect(response.body.success).toBe(false);
     expect(response.body).toHaveProperty('error');
     expect(response.body.error[0].msg).toContain('Invalid');
-    done();
   });
 
-  it('should reject zero value', async done => {
+  it('should reject zero value', async () => {
     const response = await TestUtils.request
       .post('/wallet/send-tx')
       .send({
@@ -222,10 +215,9 @@ describe('send tx (HTR)', () => {
     expect(response.status).toBe(400);
     expect(response.text).toContain('Invalid');
     expect(response.text).toContain('value');
-    done();
   });
 
-  it('should reject a negative value', async done => {
+  it('should reject a negative value', async () => {
     const response = await TestUtils.request
       .post('/wallet/send-tx')
       .send({
@@ -239,11 +231,10 @@ describe('send tx (HTR)', () => {
     expect(response.status).toBe(400);
     expect(response.text).toContain('Invalid');
     expect(response.text).toContain('value');
-    done();
   });
 
   // insufficient funds
-  it('should reject for insufficient funds', async done => {
+  it('should reject for insufficient funds', async () => {
     const response = await TestUtils.request
       .post('/wallet/send-tx')
       .send({
@@ -257,10 +248,9 @@ describe('send tx (HTR)', () => {
     expect(response.status).toBe(200);
     expect(response.body.hash).toBeUndefined();
     expect(response.body.success).toBe(false);
-    done();
   });
 
-  it('should reject for insufficient funds with two outputs', async done => {
+  it('should reject for insufficient funds with two outputs', async () => {
     // Both outputs are below the 1000 HTR available
     const response = await TestUtils.request
       .post('/wallet/send-tx')
@@ -281,10 +271,9 @@ describe('send tx (HTR)', () => {
     expect(response.status).toBe(200);
     expect(response.body.hash).toBeUndefined();
     expect(response.body.success).toBe(false);
-    done();
   });
 
-  it('should reject for insufficient funds with two inputs', async done => {
+  it('should reject for insufficient funds with two inputs', async () => {
     // Both inputs are have only 2000 HTR
     const response = await TestUtils.request
       .post('/wallet/send-tx')
@@ -302,10 +291,9 @@ describe('send tx (HTR)', () => {
     expect(response.status).toBe(200);
     expect(response.body.hash).toBeUndefined();
     expect(response.body.success).toBe(false);
-    done();
   });
 
-  it('should reject for insufficient funds on queryAddress', async done => {
+  it('should reject for insufficient funds on queryAddress', async () => {
     // Wallet1 has enough funds, but none of them are on index 5
     const response = await TestUtils.request
       .post('/wallet/send-tx')
@@ -324,10 +312,9 @@ describe('send tx (HTR)', () => {
     expect(response.status).toBe(200);
     expect(response.body.hash).toBeUndefined();
     expect(response.body.success).toBe(false);
-    done();
   });
 
-  it('should reject for insufficient funds on input', async done => {
+  it('should reject for insufficient funds on input', async () => {
     const response = await TestUtils.request
       .post('/wallet/send-tx')
       .send({
@@ -342,10 +329,9 @@ describe('send tx (HTR)', () => {
     expect(response.status).toBe(200);
     expect(response.body.hash).toBeUndefined();
     expect(response.body.success).toBe(false);
-    done();
   });
 
-  it('should reject for an invalid input', async done => {
+  it('should reject for an invalid input', async () => {
     const response = await TestUtils.request
       .post('/wallet/send-tx')
       .send({
@@ -360,19 +346,19 @@ describe('send tx (HTR)', () => {
     expect(response.status).toBe(400);
     expect(response.text).toContain('Invalid');
     expect(response.text).toContain('input');
-    done();
   });
 
   // Lastly, testing success cases, which have side-effects
 
-  it('should send with only the output address and value', async done => {
+  it('should send with only the output address and value', async () => {
     const tx = await wallet1.sendTx({
       fullObject: {
         outputs: [{
           address: await wallet2.getAddressAt(0),
           value: 10
         }],
-      }
+      },
+      destinationWallet: wallet2.walletId
     });
 
     expect(tx.hash).toBeDefined();
@@ -380,11 +366,9 @@ describe('send tx (HTR)', () => {
 
     const destination0 = await wallet2.getAddressInfo(0);
     expect(destination0.total_amount_available).toBe(10);
-
-    done();
   });
 
-  it('should send with only the output address and value and change', async done => {
+  it('should send with only the output address and value and change', async () => {
     const tx = await wallet1.sendTx({
       fullObject: {
         outputs: [{
@@ -392,7 +376,8 @@ describe('send tx (HTR)', () => {
           value: 10
         }],
         change_address: await wallet1.getAddressAt(0)
-      }
+      },
+      destinationWallet: wallet2.walletId
     });
 
     expect(tx.hash).toBeDefined();
@@ -404,11 +389,9 @@ describe('send tx (HTR)', () => {
     const changeAddr = await wallet1.getAddressInfo(0);
     const txSummary = TestUtils.getOutputSummaryHtr(tx, 10);
     expect(changeAddr.total_amount_available).toBe(txSummary.change.value);
-
-    done();
   });
 
-  it('should send with only the filterAddress', async done => {
+  it('should send with only the filterAddress', async () => {
     const inputAddrBefore = await wallet2.getAddressInfo(0);
     const destinationAddrBefore = await wallet1.getAddressInfo(0);
     const sourceBeforeTx = inputAddrBefore.total_amount_available;
@@ -424,7 +407,8 @@ describe('send tx (HTR)', () => {
           address: await wallet1.getAddressAt(0),
           value: 20
         }],
-      }
+      },
+      destinationWallet: wallet1.walletId
     });
 
     expect(tx.hash).toBeDefined();
@@ -434,11 +418,9 @@ describe('send tx (HTR)', () => {
     const destinationAddrAfter = await wallet1.getAddressInfo(0);
     expect(inputAddrAfter.total_amount_available).toBe(sourceBeforeTx - 20);
     expect(destinationAddrAfter.total_amount_available).toBe(destinationBeforeTx + 20);
-
-    done();
   });
 
-  it('should send with two outputs', async done => {
+  it('should send with two outputs', async () => {
     const destination1Before = await wallet2.getAddressInfo(1);
     const destination2Before = await wallet1.getAddressInfo(2);
 
@@ -454,7 +436,8 @@ describe('send tx (HTR)', () => {
             value: 30
           },
         ],
-      }
+      },
+      destinationWallet: wallet2.walletId
     });
 
     expect(tx.success).toBe(true);
@@ -466,10 +449,9 @@ describe('send tx (HTR)', () => {
       .toBe(destination1Before.total_amount_available + 20);
     expect(destination2After.total_amount_available)
       .toBe(destination2Before.total_amount_available + 30);
-    done();
   });
 
-  it('should send with two inputs', async done => {
+  it('should send with two inputs', async () => {
     const tx = await wallet3.sendTx({
       fullObject: {
         inputs: [
@@ -483,7 +465,8 @@ describe('send tx (HTR)', () => {
           },
         ],
         change_address: await wallet3.getAddressAt(2)
-      }
+      },
+      destinationWallet: wallet2.walletId
     });
 
     expect(tx.hash).toBeDefined();
@@ -496,10 +479,9 @@ describe('send tx (HTR)', () => {
 
     tx5.hash = tx.hash;
     tx5.index = TestUtils.getOutputIndexFromTx(tx, 500);
-    done();
   });
 
-  it('should send with correct input', async done => {
+  it('should send with correct input', async () => {
     // Injecting 2000 HTR on wallet2[3], to ensure the funds would not be available otherwise
     const fundTxObj = await wallet2.injectFunds(2000, 3);
     const fundTxInput = {
@@ -517,7 +499,8 @@ describe('send tx (HTR)', () => {
           address: await wallet1.getAddressAt(4),
           value: 1100
         }],
-      }
+      },
+      destinationWallet: wallet1.walletId
     });
 
     expect(tx.success).toBe(true);
@@ -532,11 +515,9 @@ describe('send tx (HTR)', () => {
 
     const changeAddr = await TestUtils.getAddressInfo(changeAddrHash, wallet2.walletId);
     expect(changeAddr.total_amount_available).toBe(900);
-
-    done();
   });
 
-  it('should send with zero change even with change address', async done => {
+  it('should send with zero change even with change address', async () => {
     // This test depends on the above transaction of 1100 from wallet2[3] to wallet1[4]
     const tx = await wallet2.sendTx({
       fullObject: {
@@ -545,7 +526,8 @@ describe('send tx (HTR)', () => {
           value: 900
         }],
         change_address: await wallet2.getAddressAt(5)
-      }
+      },
+      destinationWallet: wallet1.walletId
     });
 
     expect(tx.success).toBe(true);
@@ -553,11 +535,9 @@ describe('send tx (HTR)', () => {
 
     const addr5 = await wallet2.getAddressInfo(5);
     expect(addr5.total_amount_received).toBe(0);
-
-    done();
   });
 
-  it('should send with two inputs and two outputs', async done => {
+  it('should send with two inputs and two outputs', async () => {
     const tx = await wallet3.sendTx({
       fullObject: {
         inputs: [
@@ -574,7 +554,8 @@ describe('send tx (HTR)', () => {
             value: 740
           },
         ],
-      }
+      },
+      destinationWallet: wallet2.walletId
     });
 
     expect(tx.success).toBe(true);
@@ -585,30 +566,51 @@ describe('send tx (HTR)', () => {
 
     const addr8 = await wallet2.getAddressInfo(11);
     expect(addr8.total_amount_received).toBe(740);
-    done();
   });
 
   it(
     'should confirm that, if not informed, the change address is the next empty one',
-    async done => {
+    async () => {
       const nextAddressHash = await wallet1.getNextAddress();
 
       const tx = await wallet1.sendTx({
         fullObject: {
           inputs: [{ type: 'query', address: await wallet1.getAddressAt(4) }],
           outputs: [{ address: await wallet2.getAddressAt(5), value: 100 }]
-        }
+        },
+        destinationWallet: wallet2.walletId
       });
+
       const txSummary = TestUtils.getOutputSummaryHtr(tx, 100);
 
       const destination = await wallet2.getAddressInfo(5);
       const changeAddr = await TestUtils.getAddressInfo(nextAddressHash, wallet1.walletId);
       expect(destination.total_amount_available).toBe(100);
       expect(changeAddr.total_amount_available).toBe(txSummary.change.value);
-
-      done();
     }
   );
+
+  it('should send with timelock', async () => {
+    const addr0Info1 = await wallet1.getAddressInfo(0);
+    expect(addr0Info1.total_amount_locked).toBe(0);
+
+    const timelock = parseInt(Date.now().valueOf() / 1000, 10) + 1000; // timelock of 1,000 seconds
+    const tx = await wallet1.sendTx({
+      fullObject: {
+        outputs: [{
+          address: await wallet1.getAddressAt(0),
+          value: 100,
+          timelock
+        }],
+      },
+    });
+
+    expect(tx.success).toBe(true);
+    expect(tx.hash).toBeDefined();
+
+    const addr0Info2 = await wallet1.getAddressInfo(0);
+    expect(addr0Info2.total_amount_locked).toBe(100);
+  });
 });
 
 describe('send tx (custom tokens)', () => {
@@ -706,7 +708,7 @@ describe('send tx (custom tokens)', () => {
   // Starting with all the rejection tests, that do not have side-effects
 
   // Invalid inputs
-  it('should reject an invalid input hash on body', async done => {
+  it('should reject an invalid input hash on body', async () => {
     const response = await TestUtils.request
       .post('/wallet/send-tx')
       .send({
@@ -723,10 +725,9 @@ describe('send tx (custom tokens)', () => {
       .set({ 'x-wallet-id': wallet1.walletId });
     expect(response.body.success).toBe(false);
     expect(response.body.hash).toBeUndefined();
-    done();
   });
 
-  it.skip('should reject an invalid input name on body', async done => {
+  it.skip('should reject an invalid input name on body', async () => {
     const response = await TestUtils.request
       .post('/wallet/send-tx')
       .send({
@@ -745,10 +746,9 @@ describe('send tx (custom tokens)', () => {
     // Currently ignoring the wrong name. To be fixed later
     expect(response.body.success).toBe(false);
     expect(response.body.hash).toBeUndefined();
-    done();
   });
 
-  it('should reject an invalid input on a multi-input request', async done => {
+  it('should reject an invalid input on a multi-input request', async () => {
     const response = await TestUtils.request
       .post('/wallet/send-tx')
       .send({
@@ -772,10 +772,9 @@ describe('send tx (custom tokens)', () => {
 
     expect(response.body.success).toBe(false);
     expect(response.body.hash).toBeUndefined();
-    done();
   });
 
-  it.skip('should reject an invalid input symbol on body', async done => {
+  it.skip('should reject an invalid input symbol on body', async () => {
     const response = await TestUtils.request
       .post('/wallet/send-tx')
       .send({
@@ -794,11 +793,10 @@ describe('send tx (custom tokens)', () => {
     // Currently ignoring the wrong symbol. To be fixed later
     expect(response.body.success).toBe(false);
     expect(response.body.hash).toBeUndefined();
-    done();
   });
 
   // insufficient funds
-  it('should reject a transaction with insufficient funds', async done => {
+  it('should reject a transaction with insufficient funds', async () => {
     const response = await TestUtils.request
       .post('/wallet/send-tx')
       .send({
@@ -811,10 +809,9 @@ describe('send tx (custom tokens)', () => {
       .set({ 'x-wallet-id': wallet1.walletId });
     expect(response.body.success).toBe(false);
     expect(response.body.hash).toBeUndefined();
-    done();
   });
 
-  it('should reject a single-input transaction with insufficient funds', async done => {
+  it('should reject a single-input transaction with insufficient funds', async () => {
     const response = await TestUtils.request
       .post('/wallet/send-tx')
       .send({
@@ -834,10 +831,9 @@ describe('send tx (custom tokens)', () => {
 
     expect(response.body.success).toBe(false);
     expect(response.body.hash).toBeUndefined();
-    done();
   });
 
-  it('should reject a multi-input transaction with insufficient funds', async done => {
+  it('should reject a multi-input transaction with insufficient funds', async () => {
     const response = await TestUtils.request
       .post('/wallet/send-tx')
       .send({
@@ -861,10 +857,9 @@ describe('send tx (custom tokens)', () => {
 
     expect(response.body.success).toBe(false);
     expect(response.body.hash).toBeUndefined();
-    done();
   });
 
-  it('should reject a multi-input, multi token transaction with insufficient funds (custom)', async done => {
+  it('should reject a multi-input, multi token transaction with insufficient funds (custom)', async () => {
     const response = await TestUtils.request
       .post('/wallet/send-tx')
       .send({
@@ -891,10 +886,9 @@ describe('send tx (custom tokens)', () => {
 
     expect(response.body.success).toBe(false);
     expect(response.body.hash).toBeUndefined();
-    done();
   });
 
-  it('should reject a multi-input, multi token transaction with insufficient funds (htr)', async done => {
+  it('should reject a multi-input, multi token transaction with insufficient funds (htr)', async () => {
     const response = await TestUtils.request
       .post('/wallet/send-tx')
       .send({
@@ -921,7 +915,6 @@ describe('send tx (custom tokens)', () => {
 
     expect(response.body.success).toBe(false);
     expect(response.body.hash).toBeUndefined();
-    done();
   });
 
   // Success transaction tests
@@ -930,7 +923,7 @@ describe('send tx (custom tokens)', () => {
     hash: null,
     index: null
   }; // Change that will remain on wallet1
-  it('should send a custom token with a single input (deprecated token api)', async done => {
+  it('should send a custom token with a single input (deprecated token api)', async () => {
     const sendOptions = {
       inputs: [{
         hash: tkaTx1.hash,
@@ -944,7 +937,8 @@ describe('send tx (custom tokens)', () => {
       change_address: await wallet1.getAddressAt(0)
     };
     const tx = await wallet1.sendTx({
-      fullObject: sendOptions
+      fullObject: sendOptions,
+      destinationWallet: wallet2.walletId
     });
 
     expect(tx.success).toBe(true);
@@ -963,10 +957,9 @@ describe('send tx (custom tokens)', () => {
     expect(destination.total_amount_available).toBe(200);
     const change = await wallet1.getAddressInfo(0, tokenA.uid);
     expect(change.total_amount_available).toBe(800);
-    done();
   });
 
-  it('should send a custom token with a single input', async done => {
+  it('should send a custom token with a single input', async () => {
     await wallet4.injectFunds(10);
     const w4TokenTx = await wallet4.createToken({
       address: await wallet4.getAddressAt(0),
@@ -991,7 +984,9 @@ describe('send tx (custom tokens)', () => {
       change_address: await wallet4.getAddressAt(0)
     };
     const tx = await wallet4.sendTx({
-      fullObject: sendOptions
+      fullObject: sendOptions,
+      destinationWallet: wallet5.walletId
+
     });
 
     expect(tx.success).toBe(true);
@@ -1008,10 +1003,9 @@ describe('send tx (custom tokens)', () => {
     expect(destination.total_amount_available).toBe(200);
     const change = await wallet4.getAddressInfo(0, tokenWallet4.uid);
     expect(change.total_amount_available).toBe(800);
-    done();
   });
 
-  it('should send a custom token with multiple inputs', async done => {
+  it('should send a custom token with multiple inputs', async () => {
     const sendOptions = {
       inputs: [
         {
@@ -1027,7 +1021,8 @@ describe('send tx (custom tokens)', () => {
       token: tokenA,
     };
     const tx = await wallet1.sendTx({
-      fullObject: sendOptions
+      fullObject: sendOptions,
+      destinationWallet: wallet2.walletId
     });
 
     expect(tx.success).toBe(true);
@@ -1041,10 +1036,9 @@ describe('send tx (custom tokens)', () => {
 
     const balance1tka = await wallet1.getBalance(tokenA.uid);
     expect(balance1tka.available).toBe(0);
-    done();
   });
 
-  it('should send a custom token (deprecated token api)', async done => {
+  it('should send a custom token (deprecated token api)', async () => {
     // Sending all TokenA back to wallet 1, address 0
     const sendOptions = {
       outputs: [{
@@ -1055,7 +1049,8 @@ describe('send tx (custom tokens)', () => {
     };
 
     const tx = await wallet2.sendTx({
-      fullObject: sendOptions
+      fullObject: sendOptions,
+      destinationWallet: wallet1.walletId
     });
 
     expect(tx.success).toBe(true);
@@ -1066,11 +1061,9 @@ describe('send tx (custom tokens)', () => {
 
     const balance2tka = await wallet2.getBalance(tokenA.uid);
     expect(balance2tka.available).toBe(0);
-
-    done();
   });
 
-  it('should send a custom token', async done => {
+  it('should send a custom token', async () => {
     // Sending all TokenA back to wallet 1, address 0
     const sendOptions = {
       outputs: [{
@@ -1081,7 +1074,8 @@ describe('send tx (custom tokens)', () => {
     };
 
     const tx = await wallet5.sendTx({
-      fullObject: sendOptions
+      fullObject: sendOptions,
+      destinationWallet: wallet4.walletId
     });
 
     expect(tx.success).toBe(true);
@@ -1092,11 +1086,9 @@ describe('send tx (custom tokens)', () => {
 
     const balance5tka = await wallet5.getBalance(tokenWallet4.uid);
     expect(balance5tka.available).toBe(0);
-
-    done();
   });
 
-  it('should send a custom token with multi inputs and outputs', async done => {
+  it('should send a custom token with multi inputs and outputs', async () => {
     // Spreading Token A into three output addresses on wallet2
     const spreadTxOptions = {
       outputs: [
@@ -1116,7 +1108,8 @@ describe('send tx (custom tokens)', () => {
       token: tokenA,
     };
     const spreadTx = await wallet1.sendTx({
-      fullObject: spreadTxOptions
+      fullObject: spreadTxOptions,
+      destinationWallet: wallet2.walletId
     });
 
     // Consolidating these funds back into wallet1 in two addresses
@@ -1148,7 +1141,8 @@ describe('send tx (custom tokens)', () => {
       token: tokenA
     };
     const consolidateTx = await wallet2.sendTx({
-      fullObject: consolidateTxOptions
+      fullObject: consolidateTxOptions,
+      destinationWallet: wallet1.walletId
     });
 
     expect(consolidateTx.success).toBe(true);
@@ -1158,12 +1152,10 @@ describe('send tx (custom tokens)', () => {
     const destination4 = await wallet1.getAddressInfo(4, tokenA.uid);
     expect(destination3.total_amount_available).toBe(1600);
     expect(destination4.total_amount_available).toBe(400);
-
-    done();
   });
 
   let tkbTx1 = null;
-  it('should send a multi-input, multi token transaction', async done => {
+  it('should send a multi-input, multi token transaction', async () => {
     tkbTx1 = await wallet3.sendTx({
       fullObject: {
         inputs: [
@@ -1197,11 +1189,9 @@ describe('send tx (custom tokens)', () => {
     const destination8 = await wallet3.getAddressInfo(8);
     expect(destination7.total_amount_available).toBe(1000);
     expect(destination8.total_amount_available).toBe(990);
-
-    done();
   });
 
-  it('should send a multi-input/token transaction with change address', async done => {
+  it('should send a multi-input/token transaction with change address', async () => {
     const outputIndexTKB = TestUtils.getOutputIndexFromTx(tkbTx1, 1000);
 
     /* We need to have a deep understanding of the wallet and transaction in order to validate
@@ -1229,7 +1219,6 @@ describe('send tx (custom tokens)', () => {
     // next empty address
     await wallet3.getNextAddress();
 
-    await TestUtils.pauseForWsUpdate();
     // One manual UXTO with 1000 TKB, and automatic UTXO's for HTR
     const tx = await wallet3.sendTx({
       fullObject: {
@@ -1301,8 +1290,6 @@ describe('send tx (custom tokens)', () => {
     expect(destination11.total_amount_available).toBe(txOutputSummary.htr.value);
     expect(changeHtr.total_amount_available).toBe(txOutputSummary.htr.change);
     expect(changeTkb.total_amount_available).toBe(txOutputSummary.tkb.change);
-
-    done();
   });
 });
 
@@ -1343,7 +1330,7 @@ describe('filter query + custom tokens', () => {
     await wallet1.stop();
   });
 
-  it('should reject for insufficient funds (custom)', async done => {
+  it('should reject for insufficient funds (custom)', async () => {
     // Sending all the tokens to facilitate address-info validation
     const txErr = await wallet1.sendTx({
       inputs: [{ type: 'query', filter_address: await wallet1.getAddressAt(0) }],
@@ -1353,10 +1340,9 @@ describe('filter query + custom tokens', () => {
     expect(txErr.status).toBe(200);
     expect(txErr.body.success).toBe(false);
     expect(txErr.body.error).toContain('No utxos');
-    done();
   });
 
-  it('should reject for unavailable funds on address', async done => {
+  it('should reject for unavailable funds on address', async () => {
     // Address 0 on this same wallet has enough funds, but address 1 hasn't.
     const txErr = await wallet1.sendTx({
       inputs: [{ type: 'query', filter_address: await wallet1.getAddressAt(1) }],
@@ -1366,10 +1352,9 @@ describe('filter query + custom tokens', () => {
     expect(txErr.status).toBe(200);
     expect(txErr.body.success).toBe(false);
     expect(txErr.body.error).toContain('No utxos');
-    done();
   });
 
-  it('should send the custom token with a query filter by address 0', async done => {
+  it('should send the custom token with a query filter by address 0', async () => {
     // Sending all the tokens to facilitate address-info validation
     const tx = await wallet1.sendTx({
       inputs: [{ type: 'query', filter_address: await wallet1.getAddressAt(0) }],
@@ -1390,7 +1375,6 @@ describe('filter query + custom tokens', () => {
     expect(addr1custom.total_amount_received).toBe(1000);
     expect(addr1custom.total_amount_available).toBe(1000);
     expect(addr1htr.total_amount_available).toBe(20);
-    done();
 
     /*
      * Status:
@@ -1399,7 +1383,7 @@ describe('filter query + custom tokens', () => {
      */
   });
 
-  it('should reject for insufficient funds (htr)', async done => {
+  it('should reject for insufficient funds (htr)', async () => {
     const txErr = await wallet1.sendTx({
       inputs: [{ type: 'query', filter_address: await wallet1.getAddressAt(1) }],
       outputs: [
@@ -1412,10 +1396,9 @@ describe('filter query + custom tokens', () => {
     expect(txErr.status).toBe(200);
     expect(txErr.body.success).toBe(false);
     expect(txErr.body.error).toContain('No utxos');
-    done();
   });
 
-  it('should send the correct custom token from an address that have both', async done => {
+  it('should send the correct custom token from an address that have both', async () => {
     // Sending 10, which is the available HTR balance, to check if the correct token will be sent
     const tx = await wallet1.sendTx({
       inputs: [{ type: 'query', filter_address: await wallet1.getAddressAt(1) }],
@@ -1444,7 +1427,6 @@ describe('filter query + custom tokens', () => {
 
     expect(addr2htr.total_amount_received).toBe(0);
     expect(addr2htr.total_amount_available).toBe(0);
-    done();
 
     /*
      * Status:
@@ -1454,7 +1436,7 @@ describe('filter query + custom tokens', () => {
      */
   });
 
-  it('should send both tokens from multiple available utxos', async done => {
+  it('should send both tokens from multiple available utxos', async () => {
     await wallet1.injectFunds(990, 3);
     await wallet1.sendTx({
       outputs: [
@@ -1464,7 +1446,6 @@ describe('filter query + custom tokens', () => {
       change_address: await wallet1.getAddressAt(0),
       title: 'Filling address 3 with 1000 HTR and BUG'
     });
-    await TestUtils.pauseForWsUpdate();
     // Address 3 now has 1000 HTR and 1000 BUG, change of 10 HTR went to address 0
 
     /*
@@ -1507,11 +1488,9 @@ describe('filter query + custom tokens', () => {
      * addr3: 0 HTR, 0 BUG
      * addr4: 1000 HTR, 1000 BUG
      */
-
-    done();
   });
 
-  it('should ensure the sum of tokens happens in multiple UTXOs', async done => {
+  it('should ensure the sum of tokens happens in multiple UTXOs', async () => {
     /*
      * Status:
      * addr0: 10 HTR, 0 BUG
@@ -1571,11 +1550,10 @@ describe('filter query + custom tokens', () => {
 
     // Assert that address 0 with the previous change is not affected
     expect(addr0htr.total_amount_available).toBe(10);
-    done();
   });
 
   // Outputs must have address and value or type and data
-  it('should reject an invalid output object', async done => {
+  it('should reject an invalid output object', async () => {
     // Output with address and without value
     const response = await TestUtils.request
       .post('/wallet/send-tx')
@@ -1599,7 +1577,6 @@ describe('filter query + custom tokens', () => {
       .set({ 'x-wallet-id': wallet1.walletId });
 
     expect(response2.status).toBe(400);
-    done();
   });
 });
 
@@ -1626,7 +1603,7 @@ describe('transaction with data script output', () => {
     await wallet2.stop();
   });
 
-  it('should success with an output data script', async done => {
+  it('should success with an output data script', async () => {
     const tx = await wallet1.sendTx({
       outputs: [{
         type: 'data',
@@ -1648,11 +1625,9 @@ describe('transaction with data script output', () => {
     // be the first one. Besides that, we currently have no way of identifying the output type
     const valueCheck = tx.outputs[0].value === 1 || tx.outputs[1].value === 1;
     expect(valueCheck).toBe(true);
-
-    done();
   });
 
-  it('should success with two output data scripts and p2pkh output script', async done => {
+  it('should success with two output data scripts and p2pkh output script', async () => {
     const tx = await wallet1.sendTx({
       outputs: [{
         type: 'data',
@@ -1664,6 +1639,7 @@ describe('transaction with data script output', () => {
         address: await wallet2.getAddressAt(3),
         value: 100,
       }],
+      destinationWallet: wallet2.walletId
     });
 
     expect(tx.success).toBe(true);
@@ -1680,6 +1656,5 @@ describe('transaction with data script output', () => {
     // Checking specific address balance
     const destination = await wallet2.getAddressInfo(3);
     expect(destination.total_amount_available).toBe(100);
-    done();
   });
 });

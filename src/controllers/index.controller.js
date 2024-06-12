@@ -5,17 +5,19 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-const { walletApi, tokensUtils, walletUtils, Connection, HathorWallet, Network, helpersUtils, SendTransaction } = require('@hathor/wallet-lib');
-const apiDocs = require('../api-docs');
-const config = require('../config');
-const { initializedWallets } = require('../services/wallets.service');
-const { notificationBus } = require('../services/notification.service');
+const { walletApi, tokensUtils, walletUtils, Network, helpersUtils, SendTransaction, constants: hathorLibConstants } = require('@hathor/wallet-lib');
+const { getApiDocs } = require('../api-docs');
+const { initializedWallets, startWallet } = require('../services/wallets.service');
 const { cantSendTxErrorMessage, API_ERROR_CODES } = require('../helpers/constants');
 const { parametersValidation } = require('../helpers/validations.helper');
 const { sanitizeLogInput } = require('../logger');
-const { getReadonlyWalletConfig, getWalletConfigFromSeed, WalletStartError } = require('../helpers/wallet.helper');
+const { getReadonlyWalletConfig, getWalletConfigFromSeed } = require('../helpers/wallet.helper');
+const { WalletStartError } = require('../errors');
 const { mapTxReturn } = require('../helpers/tx.helper');
 const { lock, lockTypes } = require('../lock');
+const settings = require('../settings');
+
+const { GAP_LIMIT } = hathorLibConstants;
 
 function welcome(req, res) {
   res.send('<html><body><h1>Welcome to Hathor Wallet API!</h1>'
@@ -23,10 +25,11 @@ function welcome(req, res) {
 }
 
 function docs(req, res) {
-  res.send(apiDocs);
+  res.send(getApiDocs());
 }
 
 async function start(req, res) {
+  const config = settings.getConfig();
   // We expect the user to either send the seed or an xpubkey he wants to use.
   if (!('xpubkey' in req.body) && !('seedKey' in req.body) && !('seed' in req.body)) {
     res.send({
@@ -111,6 +114,49 @@ async function start(req, res) {
                 + `and ${multisigData.numSignatures} numSignatures`);
   }
 
+  // Validate address scanning policy
+  let scanPolicyData = null;
+  if ('scanPolicy' in req.body) {
+    const policy = req.body.scanPolicy;
+    switch (policy) {
+      case 'index-limit':
+        /**
+         * The policy configuration is composed by:
+         * - policyStartIndex
+         *   - optional, defaults to 0
+         * - policyEndIndex
+         *   - optional, defaults to policyStartIndex
+         *
+         * If no configuration is passed, only the first address will be loaded.
+         *
+         * Obs: The route does not use validation or parser, so we need to parse the integers
+         */
+
+        // parseInt returns NaN (falsy) for null, undefined or malformed number strings
+        scanPolicyData = {
+          policy,
+          startIndex: parseInt(req.body.policyStartIndex, 10) || 0,
+        };
+        scanPolicyData.endIndex = parseInt(req.body.policyEndIndex, 10)
+          || scanPolicyData.startIndex;
+        break;
+      case 'gap-limit':
+        // The gapLimit is optional and will default to 20
+        scanPolicyData = {
+          policy,
+          gapLimit: parseInt(req.body.gapLimit, 10) || GAP_LIMIT,
+        };
+        break;
+      default:
+        // address scanning policy requested is not supported
+        res.send({
+          success: false,
+          message: `Address scanning policy ${policy} is not supported.`,
+        });
+        return;
+    }
+  }
+
   let walletConfig;
   if ('xpubkey' in req.body) {
     try {
@@ -118,6 +164,7 @@ async function start(req, res) {
       walletConfig = getReadonlyWalletConfig({
         xpub: req.body.xpubkey,
         multisigData,
+        scanPolicy: scanPolicyData,
       });
     } catch (e) {
       if (e instanceof WalletStartError) {
@@ -153,6 +200,8 @@ async function start(req, res) {
         seed,
         multisigData,
         passphrase: req.body.passphrase,
+        allowPassphrase: config.allowPassphrase,
+        scanPolicy: scanPolicyData,
       });
     } catch (e) {
       if (e instanceof WalletStartError) {
@@ -167,57 +216,30 @@ async function start(req, res) {
     }
   }
 
-  const connection = new Connection({
-    network: config.network,
-    servers: [config.server],
-    connectionTimeout: config.connectionTimeout,
-  });
-  walletConfig.connection = connection;
-
-  // tokenUid is optional but if not passed as parameter the wallet will use HTR
-  if (config.tokenUid) {
-    walletConfig.tokenUid = config.tokenUid;
-  }
-
   const preCalculatedAddresses = 'precalculatedAddresses' in req.body ? req.body.preCalculatedAddresses : [];
   if (preCalculatedAddresses && preCalculatedAddresses.length) {
     console.log(`Received pre-calculated addresses`, sanitizeLogInput(preCalculatedAddresses));
     walletConfig.preCalculatedAddresses = preCalculatedAddresses;
   }
 
-  const wallet = new HathorWallet(walletConfig);
-
-  if (config.gapLimit) {
-    // XXX: The gap limit is now a per-wallet configuration
-    // To keep the same behavior as before, we set the gap limit
-    // when creating the wallet, but we should move this to the
-    // wallet configuration in the future
-    await wallet.setGapLimit(config.gapLimit);
-  }
-
-  // subscribe to wallet events with notificationBus
-  notificationBus.subscribeHathorWallet(walletID, wallet);
-
-  wallet.start().then(info => {
-    // The replace avoids Log Injection
-    console.log(
-      `Wallet started with wallet id ${sanitizeLogInput(walletID)}. Full-node info: ${info}`
-    );
-
-    initializedWallets.set(walletID, wallet);
-    res.send({
-      success: true,
+  startWallet(walletID, walletConfig, config)
+    .then(info => {
+      res.send({
+        success: true,
+      });
+    })
+    .catch(error => {
+      console.error('Error:', error);
+      res.send({
+        success: false,
+        message: `Failed to start wallet with wallet id ${walletID}`,
+      });
     });
-  }, error => {
-    console.error('Error:', error);
-    res.send({
-      success: false,
-      message: `Failed to start wallet with wallet id ${walletID}`,
-    });
-  });
 }
 
 function multisigPubkey(req, res) {
+  const config = settings.getConfig();
+
   if (!('seedKey' in req.body)) {
     res.send({
       success: false,
@@ -274,6 +296,8 @@ function getConfigurationString(req, res) {
 }
 
 async function pushTxHex(req, res) {
+  const config = settings.getConfig();
+
   const validationResult = parametersValidation(req);
   if (!validationResult.success) {
     res.status(400).json(validationResult);
@@ -291,6 +315,10 @@ async function pushTxHex(req, res) {
   try {
     const network = new Network(config.network);
     const tx = helpersUtils.createTxFromHex(txHex, network);
+    if (!tx.weight) {
+      // We need to prepare this tx adding weight and timestamp
+      tx.prepareToSend();
+    }
     const sendTransaction = new SendTransaction({ transaction: tx });
     const response = await sendTransaction.runFromMining();
     res.send({ success: true, tx: mapTxReturn(response) });
@@ -301,6 +329,11 @@ async function pushTxHex(req, res) {
   }
 }
 
+async function reloadConfig(_, res) {
+  await settings.reloadConfig();
+  res.send({ success: true });
+}
+
 module.exports = {
   welcome,
   docs,
@@ -308,4 +341,5 @@ module.exports = {
   multisigPubkey,
   getConfigurationString,
   pushTxHex,
+  reloadConfig,
 };

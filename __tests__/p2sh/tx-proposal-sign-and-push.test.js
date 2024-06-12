@@ -1,10 +1,13 @@
 import TestUtils from '../test-utils';
+import settings from '../../src/settings';
 
 const walletId = 'stub_p2sh_tx_proposal_sign_and_push';
 
 describe('tx-proposal sign-and-push api', () => {
   beforeAll(async () => {
-    global.config.multisig = TestUtils.multisigData;
+    const config = settings._getDefaultConfig();
+    config.multisig = TestUtils.multisigData;
+    settings._setConfig(config);
     return TestUtils.startWallet({
       walletId,
       preCalculatedAddresses: TestUtils.multisigAddresses,
@@ -13,7 +16,8 @@ describe('tx-proposal sign-and-push api', () => {
   });
 
   afterAll(async () => {
-    global.config.multisig = {};
+    settings._resetConfig();
+
     await TestUtils.stopWallet({ walletId });
   });
 

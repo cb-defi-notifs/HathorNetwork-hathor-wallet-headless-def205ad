@@ -3,17 +3,21 @@
 import supertest from 'supertest';
 import { txApi, walletApi, HathorWallet, walletUtils } from '@hathor/wallet-lib';
 import createApp from '../../../src/app';
+import { initializedWallets } from '../../../src/services/wallets.service';
 import { loggers } from './logger.util';
 import testConfig from '../configuration/test.config';
 import { WALLET_EVENTS, WalletBenchmarkUtil } from './benchmark/wallet-benchmark.util';
 import { delay } from './core.util';
 import { TxTimeHelper } from './benchmark/tx-time.helper';
 import { WALLET_CONSTANTS } from '../configuration/test-constants';
+import settings from '../configuration/settings-fixture';
 
 export { getRandomInt } from './core.util';
 
-const app = createApp();
-const request = supertest(app);
+const config = settings._getDefaultConfig();
+
+let request; let
+  server;
 
 /**
  * @typedef WalletData
@@ -42,20 +46,23 @@ export class TestUtils {
     return request;
   }
 
-  /**
-   * Whenever there is a request that depends on the last transactions' balance, there should be a
-   * small pause to allow for the Fullnode's Websocket connection to update the Wallet Headless'
-   * local caches.
-   *
-   * In localhost this time can be shorter, but we must allow for greater periods on GitHub's CI
-   * workflow.
-   *
-   * The delay period here should be optimized for this purpose.
-   * @returns {Promise<void>}
-   */
-  static async pauseForWsUpdate() {
-    await delay(testConfig.wsUpdateDelay);
-    await delay(500); // extra delay to allow for the wallet to update its balance
+  static startServer() {
+    return new Promise((resolve, reject) => {
+      const app = createApp(config);
+      server = app.listen(8088, err => {
+        if (err) {
+          return reject(err);
+        }
+
+        // Ensures the supertest agent will be bound to the correct express port
+        request = supertest.agent(server);
+        return resolve();
+      });
+    });
+  }
+
+  static stopServer() {
+    server.close();
   }
 
   /**
@@ -113,10 +120,11 @@ export class TestUtils {
    * @param {unknown} params.txResponse The HTTP response from Wallet Headless
    * @param {unknown} params.requestBody The body or query object used on the HTTP request
    * @param {boolean} [params.dontLogErrors] Skip logging errors, if an exception is expected
+   * @param {string[]} [params.walletIdsToWait] List of wallet ids to wait for the tx to be received
    * @returns {{success}|unknown}
    * @throws {TransactionErrorObject} Treated error object
    */
-  static handleTransactionResponse(params) {
+  static async handleTransactionResponse(params) {
     const transaction = params.txResponse.body;
     const logMetadata = {
       status: params.txResponse.status,
@@ -143,6 +151,12 @@ export class TestUtils {
       throw txError;
     }
 
+    const walletIdsToWait = params.walletIdsToWait ?? [];
+
+    for (const walletId of walletIdsToWait) {
+      await TestUtils.waitForTxReceived(walletId, transaction.hash);
+    }
+
     return transaction;
   }
 
@@ -163,7 +177,6 @@ export class TestUtils {
    * @returns {Promise<void>}
    */
   static async dumpUtxos({ walletId, token, err }) {
-    await TestUtils.pauseForWsUpdate();
     const utxoData = await TestUtils.getUtxos({ walletId, token });
     const dumpMessage = `Dumping all UTXOs for ${walletId}`;
     TestUtils.log(dumpMessage, utxoData);
@@ -391,7 +404,7 @@ export class TestUtils {
    * performance issues with the gap limit.
    * @param {string} address Destination address
    * @param {number} value Amount of tokens, in cents
-   * @param {string} [destinationWalletId] walletId of the destination address. Useful for debugging
+   * @param {string} destinationWalletId walletId of the destination address. Useful for debugging
    * @returns {Promise<unknown>}
    */
   static async injectFundsIntoAddress(address, value, destinationWalletId) {
@@ -409,10 +422,11 @@ export class TestUtils {
       .set(TestUtils.generateHeader(WALLET_CONSTANTS.genesis.walletId));
     txTimeHelper.informResponse(response.body.hash);
 
-    const transaction = TestUtils.handleTransactionResponse({
+    const transaction = await TestUtils.handleTransactionResponse({
       methodName: 'injectFundsIntoAddress',
       requestBody,
       txResponse: response,
+      walletIdsToWait: [WALLET_CONSTANTS.genesis.walletId, destinationWalletId],
     });
 
     // Logs the results
@@ -424,8 +438,6 @@ export class TestUtils {
       destinationWallet: destinationWalletId,
       id: transaction.hash
     });
-
-    await TestUtils.pauseForWsUpdate();
 
     return transaction;
   }
@@ -635,15 +647,15 @@ export class TestUtils {
       .set(this.generateHeader(params.walletId));
     txTimeHelper.informResponse(utxoResponse.body.txId);
 
-    const transaction = TestUtils.handleTransactionResponse({
+    const transaction = await TestUtils.handleTransactionResponse({
       methodName: 'consolidateUtxos',
       requestBody,
       txResponse: utxoResponse,
-      dontLogErrors: params.dontLogErrors
+      dontLogErrors: params.dontLogErrors,
+      walletIdsToWait: [params.walletId],
     });
 
     TestUtils.log('UTXO consolidation', { requestBody, transaction });
-    await TestUtils.pauseForWsUpdate();
 
     return transaction;
   }
@@ -675,15 +687,15 @@ export class TestUtils {
       .set(this.generateHeader(params.walletId));
     txTimeHelper.informResponse(nftResponse.body.hash);
 
-    const transaction = TestUtils.handleTransactionResponse({
+    const transaction = await TestUtils.handleTransactionResponse({
       methodName: 'createNft',
       requestBody,
       txResponse: nftResponse,
-      dontLogErrors: params.dontLogErrors
+      dontLogErrors: params.dontLogErrors,
+      walletIdsToWait: [params.walletId],
     });
 
     TestUtils.log('NFT Creation', { requestBody, transaction });
-    await TestUtils.pauseForWsUpdate();
 
     return transaction;
   }
@@ -792,6 +804,12 @@ export class TestUtils {
   static async waitNewBlock(currentHeight = null) {
     let baseHeight = currentHeight;
 
+    const timeout = testConfig.waitNewBlockTimeout;
+    let timeoutReached = false;
+    const timeoutHandler = setTimeout(() => {
+      timeoutReached = true;
+    }, timeout);
+
     if (!baseHeight) {
       baseHeight = await TestUtils.getFullNodeNetworkHeight();
     }
@@ -799,11 +817,249 @@ export class TestUtils {
     let networkHeight = baseHeight;
 
     while (networkHeight === baseHeight) {
+      if (timeoutReached) {
+        break;
+      }
+
       networkHeight = await TestUtils.getFullNodeNetworkHeight();
 
       await delay(1000);
     }
 
+    clearTimeout(timeoutHandler);
+
+    if (timeoutReached) {
+      throw new Error('Timeout reached when waiting for the next block.');
+    }
+
     return networkHeight;
+  }
+
+  /**
+   * Call headless API to get a transaction from the wallet storage
+   *
+   * @param {string} walletId ID of the wallet to get the transaction from
+   * @param {string} txId ID of the transaction to get
+   *
+   * @returns {Promise<*>} The return is an object with { success: boolean }
+   *                       and the transaction object in case of success
+   */
+  static async getTransaction(walletId, txId) {
+    const response = await TestUtils.request
+      .get(`/wallet/transaction/?id=${txId}`)
+      .set(TestUtils.generateHeader(walletId));
+
+    return response.body;
+  }
+
+  /**
+   * Waits until the transaction arrives in the wallet ws, or a timeout (optional)
+   * is reached
+   *
+   * @param {string} walletId ID of the wallet to get the transaction from
+   * @param {string} txId ID of the transaction to get
+   * @param {number | undefined} timeout The timeout to stop waiting for the tx to arrive
+   *                             if not present, it will wait forever
+   *
+   * @returns {Promise<Object>} Resolves with the tx data when the tx is found in the wallet's
+   *                            storage or rejects if timeout is reached
+   */
+  static async waitForTxReceived(walletId, txId, timeout) {
+    let timeoutHandler;
+    let timeoutReached = false;
+    if (timeout) {
+      // Timeout handler
+      timeoutHandler = setTimeout(() => {
+        timeoutReached = true;
+      }, timeout);
+    }
+
+    let result = await TestUtils.getTransaction(walletId, txId);
+
+    while (result.success === false || result.processingStatus !== 'finished') {
+      if (timeoutReached) {
+        break;
+      }
+      // Tx not found, wait 1s before trying again
+      await delay(1000);
+
+      result = await TestUtils.getTransaction(walletId, txId);
+    }
+
+    if (timeoutHandler) {
+      clearTimeout(timeoutHandler);
+    }
+
+    if (timeoutReached) {
+      // We must do the timeout handling like this because if I reject the promise directly
+      // inside the setTimeout block, this while block will continue running forever.
+      throw new Error(`Timeout of ${timeout}ms without receiving the tx with id ${txId}`);
+    }
+
+    if (result.is_voided === false) {
+      const wallet = initializedWallets.get(walletId);
+      const storageTx = await wallet.getTx(txId);
+      // We can't consider the metadata only of the transaction, it affects
+      // also the metadata of the transactions that were spent on it
+      // We could await for the update-tx event of the transactions of the inputs to arrive
+      // before considering the transaction metadata fully updated, however it's complicated
+      // to handle these events, since they might arrive even before we call this method
+      // To simplify everything, here we manually set the utxos as spent and process the history
+      // so after the transaction arrives, all the metadata involved on it is updated and we can
+      // continue running the tests to correctly check balances, addresses, and everyting else
+      await TestUtils.updateInputsSpentBy(wallet, storageTx);
+      await wallet.storage.processHistory();
+    }
+
+    await TestUtils.waitUntilNextTimestamp(result);
+
+    return result;
+  }
+
+  /**
+   * This method awaits a tx to be confirmed by a block
+   *
+   * It does not return any content, only delivers the code processing back to the caller at the
+   * desired time.
+   *
+   * @param {string} walletId ID of the wallet to get the transaction from
+   * @param {String} txId ID of the tx to wait confirmation
+   * @param {number | null | undefined} timeout
+   * @returns {Promise<void>}
+   */
+  static async waitTxConfirmed(walletId, txId, timeout) {
+    let timeoutHandler;
+    let timeoutReached = false;
+    if (timeout) {
+      // Timeout handler
+      timeoutHandler = setTimeout(() => {
+        timeoutReached = true;
+      }, timeout);
+    }
+
+    let number = await TestUtils.getTransactionConfirmationNumber(walletId, txId);
+
+    while (number < 1) {
+      if (timeoutReached) {
+        break;
+      }
+      // Tx not confirmed, wait 1s before trying again
+      await delay(1000);
+
+      number = await TestUtils.getTransactionConfirmationNumber(walletId, txId);
+    }
+
+    if (timeoutHandler) {
+      clearTimeout(timeoutHandler);
+    }
+
+    if (timeoutReached) {
+      // We must do the timeout handling like this because if I reject the promise directly
+      // inside the setTimeout block, this while block will continue running forever.
+      throw new Error(`Timeout of ${timeout}ms without confirming the tx with id ${txId}`);
+    }
+  }
+
+  /**
+   * Loop through all inputs of a tx, get the corresponding transaction in the storage and
+   * update the spent_by attribute
+   *
+   * @param {HathorWallet} wallet
+   * @param {IHistoryTx} tx
+   * @returns {Promise<void>}
+   */
+  static async updateInputsSpentBy(wallet, tx) {
+    for (const input of tx.inputs) {
+      const inputTx = await wallet.getTx(input.tx_id);
+      if (!inputTx) {
+        // This input is not spending an output from this wallet
+        continue;
+      }
+
+      if (input.index > inputTx.outputs.length - 1) {
+        // Invalid output index
+        throw new Error('Try to get output in an index that doesn\'t exist.');
+      }
+
+      const output = inputTx.outputs[input.index];
+      output.spent_by = tx.tx_id;
+      await wallet.storage.addTx(inputTx);
+    }
+  }
+
+  /**
+   * This method helps a tester to ensure the current timestamp of the next transaction will be at
+   * least one unit greater than the specified transaction.
+   *
+   * Hathor's timestamp has a granularity of seconds, and it does not allow one transaction to have
+   * a parent with a timestamp equal to its own.
+   *
+   * It does not return any content, only delivers the code processing back to the caller at the
+   * desired time.
+   *
+   * @param {IHistoryTx} tx
+   * @returns {Promise<void>}
+   */
+  static async waitUntilNextTimestamp(tx) {
+    const nowMilliseconds = Date.now().valueOf();
+    const nextValidMilliseconds = (tx.timestamp + 1) * 1000;
+
+    // We are already past the last valid milissecond
+    if (nowMilliseconds > nextValidMilliseconds) {
+      return;
+    }
+
+    // We are still within an invalid time to generate a new timestamp. Waiting for some time...
+    const timeToWait = nextValidMilliseconds - nowMilliseconds + 10;
+    await delay(timeToWait);
+  }
+
+  /**
+   * Generate X signatures from a set of wallets for a given txHex.
+   * The wallets to compose the signature are selected randomly.
+   *
+   * @param {string} txHex the encoded transaction proposal to be signed.
+   * @param {WalletHelper[]} wallets a set of wallets corresponding to the multisig wallet.
+   * @param {number} xSignatures amount of signatures.
+   *
+   * @return {Promise<string[]>} a set of signatures of X degree.
+   */
+  static async getXSignatures(txHex, wallets, xSignatures) {
+    if (!txHex) {
+      throw new Error(`'txHex' cannot be null or undefined`);
+    }
+    if (!Array.isArray(wallets)) {
+      throw new Error(`'wallets' is not an array.`);
+    }
+    if (!(Number.isInteger(xSignatures) && Number.isFinite(xSignatures))) {
+      throw new Error(`'xSignatures' is not a finite integer.`);
+    }
+    if (xSignatures < 1) {
+      throw new Error(`'xSignatures' should be at least 1.`);
+    }
+    if (xSignatures > wallets.length) {
+      throw new Error(`'xSignatures' can not be greater than the number of wallets.`);
+    }
+
+    const selectedWallets = {};
+    let xLeft = xSignatures;
+    while (xLeft > 0) {
+      const rndIdx = Math.floor(Math.random() * wallets.length);
+      if (selectedWallets[rndIdx]) {
+        continue;
+      }
+      selectedWallets[rndIdx] = wallets[rndIdx];
+      xLeft--;
+    }
+
+    const signatures = [];
+    for (const wallet of Object.values(selectedWallets)) {
+      if (!('getSignatures' in wallet)) {
+        throw new Error(`'wallet' is not an instance of WalletHelper.`);
+      }
+      signatures.push(await wallet.getSignatures(txHex));
+    }
+
+    return signatures;
   }
 }

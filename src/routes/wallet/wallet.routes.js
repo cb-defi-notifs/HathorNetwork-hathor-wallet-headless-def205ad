@@ -18,13 +18,18 @@ const { txHexSchema, partialTxSchema } = require('../../schemas');
 const p2shRouter = require('./p2sh/p2sh.routes');
 const atomicSwapRouter = require('./atomic-swap/atomic-swap.routes');
 const txProposalRouter = require('./tx-proposal/tx-proposal.routes');
+const configRouter = require('./config/config.routes');
+const nanoContractRouter = require('./nano-contracts.routes');
 const { MAX_DATA_SCRIPT_LENGTH } = require('../../constants');
+const { patchExpressRouter } = require('../../patch');
 
-const walletRouter = Router({ mergeParams: true });
+const walletRouter = patchExpressRouter(Router({ mergeParams: true }));
 walletRouter.use(walletMiddleware);
 walletRouter.use('/atomic-swap', atomicSwapRouter);
 walletRouter.use('/p2sh', p2shRouter);
 walletRouter.use('/tx-proposal', txProposalRouter);
+walletRouter.use('/config', configRouter);
+walletRouter.use('/nano-contracts', nanoContractRouter);
 
 /**
  * GET request to get the status of a wallet
@@ -230,6 +235,16 @@ walletRouter.post(
       },
       optional: true
     },
+    'outputs.*.timelock': {
+      in: ['body'],
+      isInt: {
+        options: {
+          min: 1
+        }
+      },
+      toInt: true,
+      optional: true
+    },
     'outputs.*': {
       in: ['body'],
       isObject: true,
@@ -350,6 +365,8 @@ walletRouter.post(
   body('create_melt').isBoolean().optional().toBoolean(),
   body('melt_authority_address').isString().optional(),
   body('allow_external_melt_authority_address').isBoolean().optional().toBoolean(),
+  body('data').isArray().optional(),
+  body('data.*').isString(),
   createToken
 );
 
